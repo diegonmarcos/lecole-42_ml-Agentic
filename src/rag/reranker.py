@@ -82,7 +82,8 @@ class Reranker:
         logger.info("Loading cross-encoder: %s", model)
         self.model = CrossEncoder(model, max_length=max_length, device=device)
 
-        logger.info("Reranker ready (device: %s)", self.model.device)
+        # CrossEncoder (sentence-transformers 2.2) has no public .device attribute
+        logger.info("Reranker ready (device: %s)", device or "auto")
 
     def _create_pairs(self, query: str, results: List[Dict]) -> List[Tuple[str, str]]:
         """
