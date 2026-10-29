@@ -4,7 +4,7 @@
 # ============================================================================
 # Core Dependencies
 # ============================================================================
-python>=3.11
+# Requires Python >= 3.11 (interpreter, set by CI PYTHON_VERSION; not a pip package)
 
 # Database
 asyncpg==0.29.0              # PostgreSQL async driver
