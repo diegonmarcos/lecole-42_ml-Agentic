@@ -10,19 +10,19 @@ Redis-based rate limiting for FastAPI endpoints:
 - Rate limit headers (X-RateLimit-*)
 """
 
-import time
 import logging
-from typing import Dict, Optional, Callable
+import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import Callable, Dict, Optional
 
-from fastapi import Request, Response, HTTPException, status
+from fastapi import Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 
 try:
     import redis.asyncio as redis
 except ImportError:
-    redis = None
+    redis = None  # type: ignore[assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 class RateLimitStrategy(Enum):
     """Rate limiting strategies"""
+
     FIXED_WINDOW = "fixed_window"  # Simple counter per time window
     SLIDING_WINDOW = "sliding_window"  # Sliding window counter
     TOKEN_BUCKET = "token_bucket"  # Token bucket algorithm
@@ -38,6 +39,7 @@ class RateLimitStrategy(Enum):
 @dataclass
 class RateLimitRule:
     """Rate limit rule configuration"""
+
     requests: int  # Number of requests allowed
     window: int  # Time window in seconds
     strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW
@@ -79,7 +81,7 @@ class RateLimiter:
         key: str,
         max_requests: int,
         window: int,
-        strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW
+        strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW,
     ) -> tuple[bool, int]:
         """
         Check if request is within rate limit.
@@ -97,18 +99,14 @@ class RateLimiter:
         """
         if strategy == RateLimitStrategy.FIXED_WINDOW:
             return await self._check_fixed_window(key, max_requests, window)
-        elif strategy == RateLimitStrategy.SLIDING_WINDOW:
+        if strategy == RateLimitStrategy.SLIDING_WINDOW:
             return await self._check_sliding_window(key, max_requests, window)
-        elif strategy == RateLimitStrategy.TOKEN_BUCKET:
+        if strategy == RateLimitStrategy.TOKEN_BUCKET:
             return await self._check_token_bucket(key, max_requests, window)
-        else:
-            raise ValueError(f"Unknown strategy: {strategy}")
+        raise ValueError(f"Unknown strategy: {strategy}")
 
     async def _check_fixed_window(
-        self,
-        key: str,
-        max_requests: int,
-        window: int
+        self, key: str, max_requests: int, window: int
     ) -> tuple[bool, int]:
         """Fixed window counter"""
         now = int(time.time())
@@ -124,17 +122,13 @@ class RateLimiter:
         # Check limit
         if count <= max_requests:
             return True, 0
-        else:
-            # Calculate retry_after
-            window_start = (now // window) * window
-            retry_after = window_start + window - now
-            return False, retry_after
+        # Calculate retry_after
+        window_start = (now // window) * window
+        retry_after = window_start + window - now
+        return False, retry_after
 
     async def _check_sliding_window(
-        self,
-        key: str,
-        max_requests: int,
-        window: int
+        self, key: str, max_requests: int, window: int
     ) -> tuple[bool, int]:
         """Sliding window using sorted set"""
         now = time.time()
@@ -160,21 +154,16 @@ class RateLimiter:
 
         if count < max_requests:
             return True, 0
-        else:
-            # Get oldest request timestamp
-            oldest = await self.redis.zrange(window_key, 0, 0, withscores=True)
-            if oldest:
-                oldest_time = oldest[0][1]
-                retry_after = int(oldest_time + window - now)
-                return False, max(1, retry_after)
-            else:
-                return False, window
+        # Get oldest request timestamp
+        oldest = await self.redis.zrange(window_key, 0, 0, withscores=True)
+        if oldest:
+            oldest_time = oldest[0][1]
+            retry_after = int(oldest_time + window - now)
+            return False, max(1, retry_after)
+        return False, window
 
     async def _check_token_bucket(
-        self,
-        key: str,
-        capacity: int,
-        refill_rate: float
+        self, key: str, capacity: int, refill_rate: float
     ) -> tuple[bool, int]:
         """Token bucket algorithm"""
         bucket_key = f"ratelimit:bucket:{key}"
@@ -185,15 +174,11 @@ class RateLimiter:
 
         if not bucket_data:
             # Initialize bucket
-            tokens = capacity - 1  # Consume one token
+            tokens = float(capacity - 1)  # Consume one token
             last_refill = now
 
             await self.redis.hset(
-                bucket_key,
-                mapping={
-                    "tokens": tokens,
-                    "last_refill": last_refill
-                }
+                bucket_key, mapping={"tokens": tokens, "last_refill": last_refill}
             )
             await self.redis.expire(bucket_key, int(capacity / refill_rate) + 60)
 
@@ -212,27 +197,22 @@ class RateLimiter:
             new_tokens -= 1
 
             await self.redis.hset(
-                bucket_key,
-                mapping={
-                    "tokens": new_tokens,
-                    "last_refill": now
-                }
+                bucket_key, mapping={"tokens": new_tokens, "last_refill": now}
             )
 
             return True, 0
-        else:
-            # Calculate retry_after
-            tokens_needed = 1 - new_tokens
-            retry_after = int(tokens_needed / refill_rate) + 1
+        # Calculate retry_after
+        tokens_needed = 1 - new_tokens
+        retry_after = int(tokens_needed / refill_rate) + 1
 
-            return False, retry_after
+        return False, retry_after
 
     async def get_remaining(
         self,
         key: str,
         max_requests: int,
         window: int,
-        strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW
+        strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW,
     ) -> int:
         """Get remaining requests in current window"""
         if strategy == RateLimitStrategy.SLIDING_WINDOW:
@@ -248,7 +228,7 @@ class RateLimiter:
             count = results[1]
             return max(0, max_requests - count)
 
-        elif strategy == RateLimitStrategy.FIXED_WINDOW:
+        if strategy == RateLimitStrategy.FIXED_WINDOW:
             now = int(time.time())
             window_key = f"ratelimit:fixed:{key}:{now // window}"
             count = await self.redis.get(window_key)
@@ -281,10 +261,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         app,
         redis_client: redis.Redis,
-        default_limits: Dict[str, int] = None,
-        endpoint_limits: Dict[str, Dict[str, int]] = None,
+        default_limits: Optional[Dict[str, int]] = None,
+        endpoint_limits: Optional[Dict[str, Dict[str, int]]] = None,
         strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW,
-        key_func: Optional[Callable] = None
+        key_func: Optional[Callable] = None,
     ):
         """
         Initialize rate limit middleware.
@@ -311,7 +291,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if forwarded:
             return f"ip:{forwarded.split(',')[0].strip()}"
 
-        return f"ip:{request.client.host}"
+        host = request.client.host if request.client else "unknown"
+        return f"ip:{host}"
 
     async def dispatch(self, request: Request, call_next):
         """Process request with rate limiting"""
@@ -336,7 +317,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 key=rate_limit_key,
                 max_requests=max_requests,
                 window=window,
-                strategy=self.strategy
+                strategy=self.strategy,
             )
 
             # Get remaining requests
@@ -344,23 +325,25 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 key=rate_limit_key,
                 max_requests=max_requests,
                 window=window,
-                strategy=self.strategy
+                strategy=self.strategy,
             )
 
             if not allowed:
                 # Rate limit exceeded
-                logger.warning(f"Rate limit exceeded: {rate_limit_key}")
+                logger.warning("Rate limit exceeded: %s", rate_limit_key)
 
                 return Response(
-                    content='{"error": "Rate limit exceeded", "retry_after": ' + str(retry_after) + '}',
+                    content='{"error": "Rate limit exceeded", "retry_after": '
+                    + str(retry_after)
+                    + "}",
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     media_type="application/json",
                     headers={
                         "X-RateLimit-Limit": str(max_requests),
                         "X-RateLimit-Remaining": "0",
                         "X-RateLimit-Reset": str(int(time.time()) + retry_after),
-                        "Retry-After": str(retry_after)
-                    }
+                        "Retry-After": str(retry_after),
+                    },
                 )
 
             # Process request
@@ -373,8 +356,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
             return response
 
-        except Exception as e:
-            logger.error(f"Rate limiting error: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Rate limiting error: %s", e)
             # On error, allow request (fail open)
             return await call_next(request)
 
@@ -394,9 +377,12 @@ if __name__ == "__main__":
                 key="test:fixed",
                 max_requests=10,
                 window=60,
-                strategy=RateLimitStrategy.FIXED_WINDOW
+                strategy=RateLimitStrategy.FIXED_WINDOW,
             )
-            print(f"Request {i+1}: {'✓ Allowed' if allowed else f'✗ Denied (retry after {retry_after}s)'}")
+            outcome = (
+                "✓ Allowed" if allowed else f"✗ Denied (retry after {retry_after}s)"
+            )
+            print(f"Request {i+1}: {outcome}")
 
         print("\nTesting Sliding Window:")
         for i in range(12):
@@ -404,10 +390,13 @@ if __name__ == "__main__":
                 key="test:sliding",
                 max_requests=10,
                 window=10,
-                strategy=RateLimitStrategy.SLIDING_WINDOW
+                strategy=RateLimitStrategy.SLIDING_WINDOW,
             )
             remaining = await limiter.get_remaining("test:sliding", 10, 10)
-            print(f"Request {i+1}: {'✓ Allowed' if allowed else f'✗ Denied (retry after {retry_after}s)'} (remaining: {remaining})")
+            outcome = (
+                "✓ Allowed" if allowed else f"✗ Denied (retry after {retry_after}s)"
+            )
+            print(f"Request {i+1}: {outcome} (remaining: {remaining})")
 
             await asyncio.sleep(0.5)
 

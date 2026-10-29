@@ -29,6 +29,7 @@ spacy==3.7.2                 # For semantic chunking
 
 # Web Automation
 playwright==1.40.0           # Browser automation
+playwright-stealth==1.0.6    # Stealth patches (stealth_async)
 # Install browsers: playwright install chromium
 
 # API & Web
@@ -38,6 +39,7 @@ pydantic==2.5.0              # Data validation
 
 # Monitoring
 prometheus-client==0.19.0    # Prometheus metrics
+psutil==5.9.8                # System resource health checks
 
 # Utilities
 python-dotenv==1.0.0         # Environment variables

@@ -1,0 +1,28 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = ["integration: tests that need external services (Redis, Jan)"]
+
+[tool.mypy]
+python_version = "3.11"
+
+# redis-py annotates async methods as `Awaitable[T] | T`, which mypy rejects
+# under `await`; treat the vendor package as untyped.
+[[tool.mypy.overrides]]
+module = ["redis", "redis.*"]
+follow_imports = "skip"
+
+# Design thresholds sized for this codebase (dataclass-heavy models, async
+# orchestration methods); pylint's defaults (5 args / 7 attributes / 15 locals)
+# flag ordinary record types and request handlers.
+[tool.pylint.design]
+max-args = 8
+max-positional-arguments = 8
+max-attributes = 12
+max-locals = 20
+max-returns = 8
+
+[tool.pylint.similarities]
+# Several independent dataclasses legitimately share a short run of metric
+# fields (invocations/successes/failures/...); count only longer copies.
+min-similarity-lines = 6

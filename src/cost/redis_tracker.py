@@ -12,10 +12,10 @@ Usage:
     total = await tracker.get_total_cost(user_id="user123", period="daily")
 """
 
-import redis.asyncio as redis
-from datetime import datetime, timedelta
-from typing import Optional, Dict
 import logging
+from typing import Any, Callable, Dict, Optional
+
+import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,7 @@ class RedisCostTracker:
         self.redis = redis_client
 
     async def track_cost(
-        self,
-        user_id: str,
-        tier: int,
-        cost: float,
-        period: str = "daily"
+        self, user_id: str, tier: int, cost: float, period: str = "daily"
     ) -> float:
         """
         Track cost for a user and tier.
@@ -88,17 +84,17 @@ class RedisCostTracker:
 
         new_user_total = results[0]
         logger.debug(
-            f"Tracked ${cost:.6f} for user={user_id}, tier={tier}, "
-            f"period={period}. New total: ${new_user_total:.6f}"
+            "Tracked $%.6f for user=%s, tier=%s, period=%s. New total: $%.6f",
+            cost,
+            user_id,
+            tier,
+            period,
+            new_user_total,
         )
 
         return new_user_total
 
-    async def get_total_cost(
-        self,
-        user_id: str,
-        period: str = "daily"
-    ) -> float:
+    async def get_total_cost(self, user_id: str, period: str = "daily") -> float:
         """
         Get total cost for a user in a period.
 
@@ -113,10 +109,7 @@ class RedisCostTracker:
         value = await self.redis.get(key)
         return float(value) if value else 0.0
 
-    async def get_cost_by_tier(
-        self,
-        period: str = "daily"
-    ) -> Dict[int, float]:
+    async def get_cost_by_tier(self, period: str = "daily") -> Dict[int, float]:
         """
         Get cost breakdown by tier.
 
@@ -131,11 +124,7 @@ class RedisCostTracker:
 
         cursor = 0
         while True:
-            cursor, keys = await self.redis.scan(
-                cursor,
-                match=pattern,
-                count=100
-            )
+            cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
 
             for key in keys:
                 # Extract tier from key: "cost:daily:tier:1" -> 1
@@ -150,10 +139,7 @@ class RedisCostTracker:
 
         return costs
 
-    async def get_global_cost(
-        self,
-        period: str = "daily"
-    ) -> float:
+    async def get_global_cost(self, period: str = "daily") -> float:
         """
         Get total cost across all users and tiers.
 
@@ -167,11 +153,7 @@ class RedisCostTracker:
         value = await self.redis.get(key)
         return float(value) if value else 0.0
 
-    async def reset_user_cost(
-        self,
-        user_id: str,
-        period: str = "daily"
-    ) -> None:
+    async def reset_user_cost(self, user_id: str, period: str = "daily") -> None:
         """
         Reset cost for a user (e.g., manual budget reset).
 
@@ -181,12 +163,10 @@ class RedisCostTracker:
         """
         key = f"cost:{period}:{user_id}"
         await self.redis.delete(key)
-        logger.info(f"Reset cost for user={user_id}, period={period}")
+        logger.info("Reset cost for user=%s, period=%s", user_id, period)
 
     async def get_top_spenders(
-        self,
-        period: str = "daily",
-        limit: int = 10
+        self, period: str = "daily", limit: int = 10
     ) -> list[tuple[str, float]]:
         """
         Get top N spenders for a period.
@@ -203,11 +183,7 @@ class RedisCostTracker:
 
         cursor = 0
         while True:
-            cursor, keys = await self.redis.scan(
-                cursor,
-                match=pattern,
-                count=100
-            )
+            cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
 
             for key in keys:
                 key_str = key.decode()
@@ -242,12 +218,11 @@ class RedisCostTracker:
         """
         if period == "daily":
             return 86400  # 24 hours
-        elif period == "weekly":
+        if period == "weekly":
             return 604800  # 7 days
-        elif period == "monthly":
+        if period == "monthly":
             return 2592000  # 30 days
-        else:
-            raise ValueError(f"Invalid period: {period}")
+        raise ValueError(f"Invalid period: {period}")
 
 
 class CostAlertManager:
@@ -260,7 +235,7 @@ class CostAlertManager:
     def __init__(
         self,
         redis_client: redis.Redis,
-        alert_callback: Optional[callable] = None
+        alert_callback: Optional[Callable[..., Any]] = None,
     ):
         """
         Initialize alert manager.
@@ -275,11 +250,7 @@ class CostAlertManager:
         self.thresholds = [0.80, 0.90, 0.95]  # 80%, 90%, 95%
 
     async def check_and_alert(
-        self,
-        user_id: str,
-        current_spend: float,
-        budget_limit: float,
-        period: str
+        self, user_id: str, current_spend: float, budget_limit: float, period: str
     ) -> None:
         """
         Check if user has crossed alert thresholds and send alerts.
@@ -303,30 +274,29 @@ class CostAlertManager:
 
                 # Set alert flag (expires with budget period)
                 was_set = await self.redis.set(
-                    alert_key,
-                    "1",
-                    nx=True,
-                    ex=self._get_period_ttl(period)
+                    alert_key, "1", nx=True, ex=self._get_period_ttl(period)
                 )
 
                 # If flag was just set (not already present), send alert
                 if was_set and self.alert_callback:
                     await self.alert_callback(user_id, utilization, period)
                     logger.info(
-                        f"Alert sent: user={user_id}, utilization={utilization:.1%}, "
-                        f"period={period}, threshold={threshold:.0%}"
+                        "Alert sent: user=%s, utilization=%.1f%%, period=%s, threshold=%.0f%%",
+                        user_id,
+                        utilization * 100,
+                        period,
+                        threshold * 100,
                     )
 
     def _get_period_ttl(self, period: str) -> int:
         """Get TTL for period (same as cost tracker)"""
         if period == "daily":
             return 86400
-        elif period == "weekly":
+        if period == "weekly":
             return 604800
-        elif period == "monthly":
+        if period == "monthly":
             return 2592000
-        else:
-            return 86400
+        return 86400
 
 
 # Example usage
@@ -364,10 +334,7 @@ if __name__ == "__main__":
 
         alert_mgr = CostAlertManager(redis_client, alert_callback=send_alert)
         await alert_mgr.check_and_alert(
-            user_id="user123",
-            current_spend=8.5,
-            budget_limit=10.0,
-            period="daily"
+            user_id="user123", current_spend=8.5, budget_limit=10.0, period="daily"
         )
 
         await redis_client.close()

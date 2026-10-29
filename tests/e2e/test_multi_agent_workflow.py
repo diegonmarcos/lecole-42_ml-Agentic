@@ -13,7 +13,7 @@ import pytest
 import asyncio
 import json
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock
 
 try:
     import redis.asyncio as redis
@@ -26,7 +26,6 @@ from src.agents.coder import CoderAgent
 from src.agents.reviewer import ReviewerAgent
 from src.tools.registry import ToolRegistry
 from src.tools.workbenches.code_workbench import CodeWorkbench
-from src.tools.workbenches.search_workbench import SearchWorkbench
 from src.workflows.versioning import WorkflowVersionManager
 from src.workflows.ab_testing import ABTestingManager, Variant
 from src.streaming.stream_manager import StreamManager
@@ -82,21 +81,21 @@ async def coordinator(event_bus, tool_registry, mock_provider_router):
         agent_id="planner",
         event_bus=event_bus,
         tool_registry=tool_registry,
-        provider_router=mock_provider_router
+        provider_router=mock_provider_router,
     )
 
     coder = CoderAgent(
         agent_id="coder",
         event_bus=event_bus,
         tool_registry=tool_registry,
-        provider_router=mock_provider_router
+        provider_router=mock_provider_router,
     )
 
     reviewer = ReviewerAgent(
         agent_id="reviewer",
         event_bus=event_bus,
         tool_registry=tool_registry,
-        provider_router=mock_provider_router
+        provider_router=mock_provider_router,
     )
 
     await coordinator.register_agent(planner)
@@ -126,20 +125,22 @@ class TestBasicWorkflow:
         assert result.type == MessageType.TASK_RESULT
 
     @pytest.mark.asyncio
-    async def test_agent_communication(self, event_bus, tool_registry, mock_provider_router):
+    async def test_agent_communication(
+        self, event_bus, tool_registry, mock_provider_router
+    ):
         """Test agents communicating with each other"""
         planner = PlannerAgent(
             agent_id="planner",
             event_bus=event_bus,
             tool_registry=tool_registry,
-            provider_router=mock_provider_router
+            provider_router=mock_provider_router,
         )
 
         coder = CoderAgent(
             agent_id="coder",
             event_bus=event_bus,
             tool_registry=tool_registry,
-            provider_router=mock_provider_router
+            provider_router=mock_provider_router,
         )
 
         # Start agents
@@ -150,7 +151,7 @@ class TestBasicWorkflow:
         await planner.send_message(
             recipient="coder",
             message_type=MessageType.AGENT_REQUEST,
-            content={"request": "Generate function signature"}
+            content={"request": "Generate function signature"},
         )
 
         # Give some time for message processing
@@ -162,6 +163,7 @@ class TestBasicWorkflow:
     @pytest.mark.asyncio
     async def test_tool_usage_in_workflow(self, coordinator, tool_registry):
         """Test agent using tools during workflow"""
+
         # Register a test tool
         @tool_registry.register_function(description="Test tool", category="test")
         def test_tool(input: str):
@@ -187,30 +189,50 @@ class TestCompleteWorkflow:
         # Mock LLM responses
         mock_provider_router.chat_completion.side_effect = [
             # Planner response
-            AsyncMock(content=json.dumps({
-                "summary": "Create a function to calculate factorial",
-                "steps": [
-                    {"step_number": 1, "action": "design_function", "agent": "coder"},
-                    {"step_number": 2, "action": "review_code", "agent": "reviewer"}
-                ]
-            })),
+            AsyncMock(
+                content=json.dumps(
+                    {
+                        "summary": "Create a function to calculate factorial",
+                        "steps": [
+                            {
+                                "step_number": 1,
+                                "action": "design_function",
+                                "agent": "coder",
+                            },
+                            {
+                                "step_number": 2,
+                                "action": "review_code",
+                                "agent": "reviewer",
+                            },
+                        ],
+                    }
+                )
+            ),
             # Coder response
-            AsyncMock(content=json.dumps({
-                "code": "def factorial(n):\n    return 1 if n == 0 else n * factorial(n-1)",
-                "explanation": "Recursive factorial implementation"
-            })),
+            AsyncMock(
+                content=json.dumps(
+                    {
+                        "code": "def factorial(n):\n    return 1 if n == 0 else n * factorial(n-1)",
+                        "explanation": "Recursive factorial implementation",
+                    }
+                )
+            ),
             # Reviewer response
-            AsyncMock(content=json.dumps({
-                "overall_rating": "Good",
-                "score": 85,
-                "issues": [],
-                "approved": True
-            }))
+            AsyncMock(
+                content=json.dumps(
+                    {
+                        "overall_rating": "Good",
+                        "score": 85,
+                        "issues": [],
+                        "approved": True,
+                    }
+                )
+            ),
         ]
 
         # Step 1: Plan
         plan_task = {"instruction": "Create a factorial function"}
-        plan_msg_id = await coordinator.assign_task("planner", plan_task)
+        await coordinator.assign_task("planner", plan_task)
         plan_result = await coordinator.wait_for_result("planner", timeout=5.0)
 
         assert plan_result is not None
@@ -219,7 +241,7 @@ class TestCompleteWorkflow:
 
         # Step 2: Code
         code_task = {"instruction": "Implement factorial function"}
-        code_msg_id = await coordinator.assign_task("coder", code_task)
+        await coordinator.assign_task("coder", code_task)
         code_result = await coordinator.wait_for_result("coder", timeout=5.0)
 
         assert code_result is not None
@@ -228,7 +250,7 @@ class TestCompleteWorkflow:
 
         # Step 3: Review
         review_task = {"code": code["code"]}
-        review_msg_id = await coordinator.assign_task("reviewer", review_task)
+        await coordinator.assign_task("reviewer", review_task)
         review_result = await coordinator.wait_for_result("reviewer", timeout=5.0)
 
         assert review_result is not None
@@ -241,16 +263,16 @@ class TestCompleteWorkflow:
         # First attempt fails, second succeeds
         mock_provider_router.chat_completion.side_effect = [
             Exception("API error"),
-            AsyncMock(content=json.dumps({"result": "success"}))
+            AsyncMock(content=json.dumps({"result": "success"})),
         ]
 
         task = {"instruction": "Test task"}
 
         # First attempt should fail
-        msg_id = await coordinator.assign_task("coder", task, priority=1)
+        await coordinator.assign_task("coder", task, priority=1)
 
         # Should retry and succeed
-        result = await coordinator.wait_for_result("coder", timeout=10.0)
+        await coordinator.wait_for_result("coder", timeout=10.0)
 
         # Eventually succeeds (in production would have retry logic)
         # This test just verifies the coordinator handles exceptions gracefully
@@ -269,16 +291,16 @@ class TestWorkflowVersioning:
             "agents": ["planner", "coder"],
             "steps": [
                 {"agent": "planner", "action": "plan"},
-                {"agent": "coder", "action": "code"}
-            ]
+                {"agent": "coder", "action": "code"},
+            ],
         }
 
-        v1 = await version_manager.create_version(
+        await version_manager.create_version(
             workflow_id="code-workflow",
             version="1.0.0",
             workflow_data=workflow_v1,
             author="system",
-            changelog="Initial version"
+            changelog="Initial version",
         )
 
         # Create v2.0.0 workflow (3 agents)
@@ -287,17 +309,17 @@ class TestWorkflowVersioning:
             "steps": [
                 {"agent": "planner", "action": "plan"},
                 {"agent": "coder", "action": "code"},
-                {"agent": "reviewer", "action": "review"}
-            ]
+                {"agent": "reviewer", "action": "review"},
+            ],
         }
 
-        v2 = await version_manager.create_version(
+        await version_manager.create_version(
             workflow_id="code-workflow",
             version="2.0.0",
             workflow_data=workflow_v2,
             author="system",
             changelog="Add reviewer",
-            set_active=True
+            set_active=True,
         )
 
         # Execute active version (v2)
@@ -327,7 +349,7 @@ class TestABTestingWorkflow:
             version="1.0.0",
             workflow_data={"model": "llama-70b"},
             author="system",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -336,7 +358,7 @@ class TestABTestingWorkflow:
             workflow_data={"model": "claude-3.5-haiku"},
             author="system",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         # Create A/B experiment
@@ -346,8 +368,8 @@ class TestABTestingWorkflow:
             description="Test Llama vs Claude",
             variants=[
                 Variant("control", "1.0.0", 0.5, "Llama 70B"),
-                Variant("test", "2.0.0", 0.5, "Claude 3.5 Haiku")
-            ]
+                Variant("test", "2.0.0", 0.5, "Claude 3.5 Haiku"),
+            ],
         )
 
         await ab_manager.start_experiment(experiment.experiment_id)
@@ -357,19 +379,17 @@ class TestABTestingWorkflow:
 
         for i in range(100):
             variant = await ab_manager.assign_variant(
-                experiment.experiment_id,
-                user_id=f"user_{i}"
+                experiment.experiment_id, user_id=f"user_{i}"
             )
 
             variant_assignments[variant.variant_id] += 1
 
             # Record metrics
-            await ab_manager.record_impression(experiment.experiment_id, variant.variant_id)
+            await ab_manager.record_impression(
+                experiment.experiment_id, variant.variant_id
+            )
             await ab_manager.record_success(
-                experiment.experiment_id,
-                variant.variant_id,
-                latency=1.5,
-                cost=0.05
+                experiment.experiment_id, variant.variant_id, latency=1.5, cost=0.05
             )
 
         # Check traffic split (should be roughly 50/50)
@@ -392,7 +412,13 @@ class TestStreamingWorkflow:
 
         # Mock streaming response
         async def mock_stream():
-            chunks = ["def ", "factorial", "(n):\n", "    return ", "1 if n == 0 else n * factorial(n-1)"]
+            chunks = [
+                "def ",
+                "factorial",
+                "(n):\n",
+                "    return ",
+                "1 if n == 0 else n * factorial(n-1)",
+            ]
             for chunk in chunks:
                 yield chunk
 
@@ -404,7 +430,7 @@ class TestStreamingWorkflow:
             provider_router=mock_provider_router,
             tier="tier-1",
             model="llama-70b",
-            messages=[{"role": "user", "content": "Generate factorial function"}]
+            messages=[{"role": "user", "content": "Generate factorial function"}],
         ):
             full_response += chunk.content
 
@@ -429,7 +455,7 @@ class TestStreamingWorkflow:
             tier="tier-1",
             model="llama-70b",
             messages=[{"role": "user", "content": "Test"}],
-            quality_check=True
+            quality_check=True,
         ):
             chunks_received += 1
 
@@ -443,7 +469,7 @@ class TestCodeWorkbench:
     @pytest.mark.asyncio
     async def test_code_analysis_workflow(self, tool_registry):
         """Test complete code analysis workflow"""
-        workbench = CodeWorkbench(tool_registry)
+        CodeWorkbench(tool_registry)
 
         code = """
 def calculate_fibonacci(n):
@@ -458,7 +484,9 @@ def calculate_fibonacci(n):
         assert "functions" in parse_result.output
 
         # Calculate complexity
-        complexity_result = await tool_registry.execute("calculate_complexity", {"code": code})
+        complexity_result = await tool_registry.execute(
+            "calculate_complexity", {"code": code}
+        )
         assert complexity_result.success
         assert "functions" in complexity_result.output
 
@@ -505,7 +533,7 @@ class TestErrorHandling:
         await coordinator.assign_task("planner", task)
 
         # Should handle gracefully (not crash)
-        result = await coordinator.wait_for_result("planner", timeout=5.0)
+        await coordinator.wait_for_result("planner", timeout=5.0)
 
         # In production, would have error handling
 
@@ -516,10 +544,7 @@ class TestPerformance:
     @pytest.mark.asyncio
     async def test_concurrent_task_processing(self, coordinator):
         """Test processing multiple tasks concurrently"""
-        tasks = [
-            {"instruction": f"Task {i}"}
-            for i in range(10)
-        ]
+        tasks = [{"instruction": f"Task {i}"} for i in range(10)]
 
         # Assign all tasks
         message_ids = []
@@ -533,6 +558,7 @@ class TestPerformance:
     @pytest.mark.asyncio
     async def test_tool_execution_performance(self, tool_registry):
         """Test tool execution performance"""
+
         # Register a simple tool
         @tool_registry.register_function(description="Fast tool", category="test")
         def fast_tool(n: int):

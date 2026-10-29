@@ -9,36 +9,35 @@ Provides REST API for:
 - MCP operations
 """
 
+import logging
+import time
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-import logging
-import time
 
+from ..utils.shutdown import ShutdownPhase, shutdown_manager
 from .budget import router as budget_router
 from .health import router as health_router
-from ..utils.shutdown import shutdown_manager, ShutdownPhase
-
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
 # Lifespan context manager
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """
     Startup and shutdown logic with graceful shutdown support (TASK-045).
     """
     # Startup
-    logger.info("="*70)
+    logger.info("=" * 70)
     logger.info("  Starting Multi-Agent RAG Orchestrator API v4.2")
-    logger.info("="*70)
+    logger.info("=" * 70)
     logger.info("Budget API: /api/v1/budget")
     logger.info("Health API: /health")
     logger.info("Documentation: /docs")
@@ -52,26 +51,26 @@ async def lifespan(app: FastAPI):
         name="Stop background tasks",
         phase=ShutdownPhase.STOP_BACKGROUND,
         callback=lambda: logger.info("Background tasks stopped"),
-        critical=False
+        critical=False,
     )
 
     shutdown_manager.register(
         name="Close database connections",
         phase=ShutdownPhase.CLOSE_CONNECTIONS,
         callback=lambda: logger.info("Database connections closed"),
-        critical=True
+        critical=True,
     )
 
     shutdown_manager.register(
         name="Final cleanup",
         phase=ShutdownPhase.CLEANUP,
         callback=lambda: logger.info("Cleanup complete"),
-        critical=False
+        critical=False,
     )
 
     logger.info("Graceful shutdown hooks registered")
     logger.info("API ready to serve requests")
-    logger.info("="*70)
+    logger.info("=" * 70)
 
     yield
 
@@ -84,11 +83,14 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Multi-Agent RAG Orchestrator",
-    description="Production-grade RAG orchestration with multi-tier LLMs, cost tracking, and privacy mode",
+    description=(
+        "Production-grade RAG orchestration with multi-tier LLMs, "
+        "cost tracking, and privacy mode"
+    ),
     version="4.2.0",
     lifespan=lifespan,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 
@@ -112,9 +114,11 @@ async def log_requests(request: Request, call_next):
 
     process_time = time.time() - start_time
     logger.info(
-        f"{request.method} {request.url.path} "
-        f"status={response.status_code} "
-        f"duration={process_time:.3f}s"
+        "%s %s status=%s duration=%.3fs",
+        request.method,
+        request.url.path,
+        response.status_code,
+        process_time,
     )
 
     return response
@@ -139,8 +143,8 @@ async def root():
             "health": "/health",
             "liveness": "/health/live",
             "readiness": "/health/ready",
-            "startup": "/health/startup"
-        }
+            "startup": "/health/startup",
+        },
     }
 
 
@@ -151,37 +155,34 @@ async def health_check():
     return {
         "status": "healthy",
         "version": "4.2.0",
-        "components": {
-            "api": "operational",
-            "budget": "operational"
-        }
+        "components": {"api": "operational", "budget": "operational"},
     }
 
 
 # Error handlers
 @app.exception_handler(404)
-async def not_found_handler(request: Request, exc):
+async def not_found_handler(request: Request, _exc):
     """Custom 404 handler"""
     return JSONResponse(
         status_code=404,
         content={
             "error": "Not Found",
             "message": f"Endpoint {request.url.path} not found",
-            "documentation": "/docs"
-        }
+            "documentation": "/docs",
+        },
     )
 
 
 @app.exception_handler(500)
-async def internal_error_handler(request: Request, exc):
+async def internal_error_handler(_request: Request, exc):
     """Custom 500 handler"""
-    logger.error(f"Internal error: {exc}", exc_info=True)
+    logger.error("Internal error: %s", exc, exc_info=True)
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal Server Error",
-            "message": "An unexpected error occurred"
-        }
+            "message": "An unexpected error occurred",
+        },
     )
 
 
@@ -189,9 +190,5 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "src.api.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
+        "src.api.main:app", host="0.0.0.0", port=8000, reload=True, log_level="info"
     )

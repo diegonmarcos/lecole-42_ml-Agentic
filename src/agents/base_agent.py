@@ -11,15 +11,16 @@ Provides common agent functionality:
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Callable
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
 import time
+import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
-from .coordinator import Message, MessageType, AgentCoordinator
+from src.providers.router import ProviderRouter, Tier, build_local_router
 from src.tools.registry import ToolRegistry, get_registry
-from src.providers.router import ProviderRouter, Tier
 
+from .coordinator import AgentCoordinator, Message, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AgentState:
     """Agent state"""
+
     agent_id: str
     status: str  # idle, thinking, executing, waiting
     current_task: Optional[Dict[str, Any]] = None
@@ -53,7 +55,7 @@ class BaseAgent(ABC):
         provider_router: ProviderRouter,
         tool_registry: Optional[ToolRegistry] = None,
         tier: Tier = Tier.CLOUD_CHEAP,
-        model: Optional[str] = None
+        model: Optional[str] = None,
     ):
         """
         Initialize base agent.
@@ -87,11 +89,11 @@ class BaseAgent(ABC):
             agent_id=self.agent_id,
             agent_type=self.agent_type,
             capabilities=self.capabilities,
-            callback=self._handle_message
+            callback=self._handle_message,
         )
 
         self._running = True
-        logger.info(f"Agent {self.agent_id} started")
+        logger.info("Agent %s started", self.agent_id)
 
     async def stop(self):
         """Stop agent"""
@@ -100,7 +102,7 @@ class BaseAgent(ABC):
         # Unregister from coordinator
         await self.coordinator.unregister_agent(self.agent_id)
 
-        logger.info(f"Agent {self.agent_id} stopped")
+        logger.info("Agent %s stopped", self.agent_id)
 
     async def _handle_message(self, message: Message):
         """
@@ -125,7 +127,7 @@ class BaseAgent(ABC):
         self.state.status = "thinking"
         self.state.current_task = message.content
 
-        logger.info(f"Agent {self.agent_id} processing task: {message.message_id}")
+        logger.info("Agent %s processing task: %s", self.agent_id, message.message_id)
 
         try:
             # Process task (implemented by subclass)
@@ -137,8 +139,8 @@ class BaseAgent(ABC):
             self.state.status = "idle"
             self.state.current_task = None
 
-        except Exception as e:
-            logger.error(f"Task processing error: {e}", exc_info=True)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Task processing error: %s", e, exc_info=True)
 
             # Send error
             await self._send_error(message.message_id, str(e))
@@ -148,16 +150,13 @@ class BaseAgent(ABC):
     async def _handle_agent_request(self, message: Message):
         """Handle request from another agent"""
         # Subclasses can override
-        pass
 
     async def _handle_system_event(self, message: Message):
         """Handle system event"""
         # Subclasses can override
-        pass
 
     async def _send_result(self, parent_message_id: str, result: Any):
         """Send task result"""
-        import uuid
 
         result_message = Message(
             message_id=str(uuid.uuid4()),
@@ -165,14 +164,13 @@ class BaseAgent(ABC):
             sender=self.agent_id,
             recipient="coordinator",
             content=result,
-            parent_id=parent_message_id
+            parent_id=parent_message_id,
         )
 
         await self.coordinator.event_bus.publish(result_message)
 
     async def _send_error(self, parent_message_id: str, error: str):
         """Send error message"""
-        import uuid
 
         error_message = Message(
             message_id=str(uuid.uuid4()),
@@ -180,7 +178,7 @@ class BaseAgent(ABC):
             sender=self.agent_id,
             recipient="coordinator",
             content={"error": error},
-            parent_id=parent_message_id
+            parent_id=parent_message_id,
         )
 
         await self.coordinator.event_bus.publish(error_message)
@@ -190,7 +188,7 @@ class BaseAgent(ABC):
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        tier: Optional[Tier] = None
+        tier: Optional[Tier] = None,
     ) -> str:
         """
         Call LLM with agent's system prompt.
@@ -207,10 +205,7 @@ class BaseAgent(ABC):
         # Prepend system prompt
         system_prompt = self.get_system_prompt()
 
-        full_messages = [
-            {"role": "system", "content": system_prompt},
-            *messages
-        ]
+        full_messages = [{"role": "system", "content": system_prompt}, *messages]
 
         # Call LLM
         response = await self.provider_router.chat_completion(
@@ -218,16 +213,12 @@ class BaseAgent(ABC):
             model=self.model,
             messages=full_messages,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
         )
 
         return response.content
 
-    async def use_tool(
-        self,
-        tool_name: str,
-        parameters: Dict[str, Any]
-    ) -> Any:
+    async def use_tool(self, tool_name: str, parameters: Dict[str, Any]) -> Any:
         """
         Use a tool from registry.
 
@@ -242,13 +233,13 @@ class BaseAgent(ABC):
 
         try:
             result = await self.tool_registry.execute(
-                name=tool_name,
-                parameters=parameters
+                name=tool_name, parameters=parameters
             )
 
             # Update stats
-            self.state.tool_usage_count[tool_name] = \
+            self.state.tool_usage_count[tool_name] = (
                 self.state.tool_usage_count.get(tool_name, 0) + 1
+            )
 
             return result.output if result.success else None
 
@@ -263,11 +254,7 @@ class BaseAgent(ABC):
             key: Memory key
             value: Value to store
         """
-        self.state.memory.append({
-            "key": key,
-            "value": value,
-            "timestamp": time.time()
-        })
+        self.state.memory.append({"key": key, "value": value, "timestamp": time.time()})
 
     def recall(self, key: str, default: Any = None) -> Any:
         """
@@ -297,7 +284,6 @@ class BaseAgent(ABC):
         Returns:
             Task result
         """
-        pass
 
     @abstractmethod
     def get_system_prompt(self) -> str:
@@ -307,7 +293,6 @@ class BaseAgent(ABC):
         Returns:
             System prompt
         """
-        pass
 
     def get_stats(self) -> Dict[str, Any]:
         """Get agent statistics"""
@@ -317,7 +302,7 @@ class BaseAgent(ABC):
             "status": self.state.status,
             "total_messages": len(self.state.message_history),
             "tool_usage": dict(self.state.tool_usage_count),
-            "memory_size": len(self.state.memory)
+            "memory_size": len(self.state.memory),
         }
 
 
@@ -329,11 +314,7 @@ class EchoAgent(BaseAgent):
         """Echo task content"""
         await asyncio.sleep(0.5)  # Simulate work
 
-        return {
-            "status": "completed",
-            "echoed": task,
-            "agent": self.agent_id
-        }
+        return {"status": "completed", "echoed": task, "agent": self.agent_id}
 
     def get_system_prompt(self) -> str:
         """Get system prompt"""
@@ -342,22 +323,13 @@ class EchoAgent(BaseAgent):
 
 # Example usage
 if __name__ == "__main__":
-    async def main():
-        from src.providers.ollama_provider import OllamaProvider
-        from src.providers.router import ProviderRouter, Tier, ProviderConfig
 
+    async def main():
         # Setup
         coordinator = AgentCoordinator()
         await coordinator.start()
 
-        router = ProviderRouter()
-        router.register(
-            "ollama",
-            OllamaProvider(),
-            tier=Tier.LOCAL_FREE,
-            models=["llama3.1:8b"],
-            privacy_compatible=True
-        )
+        router = build_local_router()
 
         # Create agent
         agent = EchoAgent(
@@ -366,17 +338,14 @@ if __name__ == "__main__":
             capabilities=["echo"],
             coordinator=coordinator,
             provider_router=router,
-            tier=Tier.LOCAL_FREE
+            tier=Tier.LOCAL_FREE,
         )
 
         # Start agent
         await agent.start()
 
         # Assign task
-        task_id = await coordinator.assign_task(
-            "echo-1",
-            {"message": "Hello, agent!"}
-        )
+        await coordinator.assign_task("echo-1", {"message": "Hello, agent!"})
 
         # Wait for result
         result = await coordinator.wait_for_result("echo-1", timeout=5)

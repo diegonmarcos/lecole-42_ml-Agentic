@@ -15,10 +15,10 @@ Integrates with PostgreSQL + TimescaleDB for time-series data.
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import asyncpg
@@ -31,14 +31,16 @@ logger = logging.getLogger(__name__)
 
 class AlertSeverity(Enum):
     """Alert severity levels"""
+
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
 
 
 @dataclass
-class ProviderMetrics:
+class ProviderMetrics:  # pylint: disable=too-many-instance-attributes
     """Aggregated provider metrics"""
+
     provider_name: str
     tier: str
     invocations: int
@@ -71,6 +73,7 @@ class ProviderMetrics:
 @dataclass
 class CostBreakdown:
     """Cost breakdown analysis"""
+
     total_cost: float
     by_provider: Dict[str, float]
     by_tier: Dict[str, float]
@@ -81,6 +84,7 @@ class CostBreakdown:
 @dataclass
 class PerformanceAnalysis:
     """Performance analysis"""
+
     avg_latency: float
     latency_by_provider: Dict[str, float]
     latency_by_tier: Dict[str, float]
@@ -90,6 +94,7 @@ class PerformanceAnalysis:
 @dataclass
 class UsageAnalysis:
     """Token usage analysis"""
+
     total_tokens: int
     by_provider: Dict[str, int]
     by_tier: Dict[str, int]
@@ -99,6 +104,7 @@ class UsageAnalysis:
 @dataclass
 class Alert:
     """Performance alert"""
+
     alert_id: str
     severity: AlertSeverity
     message: str
@@ -143,13 +149,11 @@ class ProviderAnalyticsEngine:
             "cost_per_request": 0.50,  # $0.50 per request
             "latency_p95": 5.0,  # 5 seconds
             "failure_rate": 0.10,  # 10% failure rate
-            "cost_increase": 1.5  # 50% increase from baseline
+            "cost_increase": 1.5,  # 50% increase from baseline
         }
 
     async def get_cost_breakdown(
-        self,
-        days: int = 7,
-        provider: Optional[str] = None
+        self, days: int = 7, provider: Optional[str] = None
     ) -> CostBreakdown:
         """
         Get cost breakdown analysis.
@@ -173,7 +177,7 @@ class ProviderAnalyticsEngine:
         """
 
         total_row = await self.db.fetchrow(query_total, start_time, provider)
-        total_cost = float(total_row['total_cost'])
+        total_cost = float(total_row["total_cost"])
 
         # Cost by provider
         query_by_provider = """
@@ -186,7 +190,7 @@ class ProviderAnalyticsEngine:
         """
 
         provider_rows = await self.db.fetch(query_by_provider, start_time)
-        by_provider = {row['provider']: float(row['cost']) for row in provider_rows}
+        by_provider = {row["provider"]: float(row["cost"]) for row in provider_rows}
 
         # Cost by tier
         query_by_tier = """
@@ -199,7 +203,7 @@ class ProviderAnalyticsEngine:
         """
 
         tier_rows = await self.db.fetch(query_by_tier, start_time)
-        by_tier = {row['tier']: float(row['cost']) for row in tier_rows}
+        by_tier = {row["tier"]: float(row["cost"]) for row in tier_rows}
 
         # Cost by model
         query_by_model = """
@@ -213,23 +217,23 @@ class ProviderAnalyticsEngine:
         """
 
         model_rows = await self.db.fetch(query_by_model, start_time)
-        by_model = {row['model']: float(row['cost']) for row in model_rows}
+        by_model = {row["model"]: float(row["cost"]) for row in model_rows}
 
         # Top spenders
-        top_spenders = [(row['provider'], float(row['cost'])) for row in provider_rows[:5]]
+        top_spenders = [
+            (row["provider"], float(row["cost"])) for row in provider_rows[:5]
+        ]
 
         return CostBreakdown(
             total_cost=total_cost,
             by_provider=by_provider,
             by_tier=by_tier,
             by_model=by_model,
-            top_spenders=top_spenders
+            top_spenders=top_spenders,
         )
 
     async def get_performance_analysis(
-        self,
-        days: int = 7,
-        provider: Optional[str] = None
+        self, days: int = 7, provider: Optional[str] = None
     ) -> PerformanceAnalysis:
         """
         Get performance analysis.
@@ -253,7 +257,7 @@ class ProviderAnalyticsEngine:
         """
 
         avg_row = await self.db.fetchrow(query_avg, start_time, provider)
-        avg_latency = float(avg_row['avg_latency']) if avg_row['avg_latency'] else 0.0
+        avg_latency = float(avg_row["avg_latency"]) if avg_row["avg_latency"] else 0.0
 
         # Latency by provider
         query_by_provider = """
@@ -267,8 +271,7 @@ class ProviderAnalyticsEngine:
 
         provider_rows = await self.db.fetch(query_by_provider, start_time)
         latency_by_provider = {
-            row['provider']: float(row['avg_latency'])
-            for row in provider_rows
+            row["provider"]: float(row["avg_latency"]) for row in provider_rows
         }
 
         # Latency by tier
@@ -282,10 +285,7 @@ class ProviderAnalyticsEngine:
         """
 
         tier_rows = await self.db.fetch(query_by_tier, start_time)
-        latency_by_tier = {
-            row['tier']: float(row['avg_latency'])
-            for row in tier_rows
-        }
+        latency_by_tier = {row["tier"]: float(row["avg_latency"]) for row in tier_rows}
 
         # Percentiles by provider
         query_percentiles = """
@@ -304,23 +304,21 @@ class ProviderAnalyticsEngine:
         percentiles = {}
 
         for row in percentile_rows:
-            percentiles[row['provider']] = {
-                'p50': float(row['p50']),
-                'p95': float(row['p95']),
-                'p99': float(row['p99'])
+            percentiles[row["provider"]] = {
+                "p50": float(row["p50"]),
+                "p95": float(row["p95"]),
+                "p99": float(row["p99"]),
             }
 
         return PerformanceAnalysis(
             avg_latency=avg_latency,
             latency_by_provider=latency_by_provider,
             latency_by_tier=latency_by_tier,
-            percentiles=percentiles
+            percentiles=percentiles,
         )
 
     async def get_usage_analysis(
-        self,
-        days: int = 7,
-        provider: Optional[str] = None
+        self, days: int = 7, provider: Optional[str] = None
     ) -> UsageAnalysis:
         """
         Get token usage analysis.
@@ -346,8 +344,8 @@ class ProviderAnalyticsEngine:
         """
 
         total_row = await self.db.fetchrow(query_total, start_time, provider)
-        total_tokens = int(total_row['total_tokens'])
-        invocations = int(total_row['invocations'])
+        total_tokens = int(total_row["total_tokens"])
+        invocations = int(total_row["invocations"])
         avg_tokens = total_tokens / invocations if invocations > 0 else 0
 
         # Tokens by provider
@@ -361,7 +359,9 @@ class ProviderAnalyticsEngine:
         """
 
         provider_rows = await self.db.fetch(query_by_provider, start_time)
-        by_provider = {row['provider']: int(row['total_tokens']) for row in provider_rows}
+        by_provider = {
+            row["provider"]: int(row["total_tokens"]) for row in provider_rows
+        }
 
         # Tokens by tier
         query_by_tier = """
@@ -374,19 +374,17 @@ class ProviderAnalyticsEngine:
         """
 
         tier_rows = await self.db.fetch(query_by_tier, start_time)
-        by_tier = {row['tier']: int(row['total_tokens']) for row in tier_rows}
+        by_tier = {row["tier"]: int(row["total_tokens"]) for row in tier_rows}
 
         return UsageAnalysis(
             total_tokens=total_tokens,
             by_provider=by_provider,
             by_tier=by_tier,
-            avg_tokens_per_request=avg_tokens
+            avg_tokens_per_request=avg_tokens,
         )
 
     async def get_provider_metrics(
-        self,
-        provider: str,
-        days: int = 7
+        self, provider: str, days: int = 7
     ) -> ProviderMetrics:
         """
         Get comprehensive metrics for specific provider.
@@ -431,21 +429,21 @@ class ProviderAnalyticsEngine:
                 failures=0,
                 total_cost=0.0,
                 total_tokens=0,
-                total_latency=0.0
+                total_latency=0.0,
             )
 
         metrics = ProviderMetrics(
-            provider_name=row['provider'],
-            tier=row['tier'],
-            invocations=row['invocations'],
-            successes=row['successes'],
-            failures=row['failures'],
-            total_cost=float(row['total_cost']),
-            total_tokens=int(row['total_tokens']),
-            total_latency=float(row['total_latency']),
-            latency_p50=float(row['p50']) if row['p50'] else None,
-            latency_p95=float(row['p95']) if row['p95'] else None,
-            latency_p99=float(row['p99']) if row['p99'] else None
+            provider_name=row["provider"],
+            tier=row["tier"],
+            invocations=row["invocations"],
+            successes=row["successes"],
+            failures=row["failures"],
+            total_cost=float(row["total_cost"]),
+            total_tokens=int(row["total_tokens"]),
+            total_latency=float(row["total_latency"]),
+            latency_p50=float(row["p50"]) if row["p50"] else None,
+            latency_p95=float(row["p95"]) if row["p95"] else None,
+            latency_p99=float(row["p99"]) if row["p99"] else None,
         )
 
         metrics.calculate_derived_metrics()
@@ -479,18 +477,20 @@ class ProviderAnalyticsEngine:
         cost_rows = await self.db.fetch(query_cost, start_time)
 
         for row in cost_rows:
-            avg_cost = float(row['avg_cost'])
+            avg_cost = float(row["avg_cost"])
             if avg_cost > self.alert_thresholds["cost_per_request"]:
-                alerts.append(Alert(
-                    alert_id=f"cost_{row['provider']}_{int(datetime.utcnow().timestamp())}",
-                    severity=AlertSeverity.WARNING,
-                    message=f"High cost per request for {row['provider']}: ${avg_cost:.4f}",
-                    provider=row['provider'],
-                    metric="cost_per_request",
-                    value=avg_cost,
-                    threshold=self.alert_thresholds["cost_per_request"],
-                    timestamp=datetime.utcnow()
-                ))
+                alerts.append(
+                    Alert(
+                        alert_id=f"cost_{row['provider']}_{int(datetime.utcnow().timestamp())}",
+                        severity=AlertSeverity.WARNING,
+                        message=f"High cost per request for {row['provider']}: ${avg_cost:.4f}",
+                        provider=row["provider"],
+                        metric="cost_per_request",
+                        value=avg_cost,
+                        threshold=self.alert_thresholds["cost_per_request"],
+                        timestamp=datetime.utcnow(),
+                    )
+                )
 
         # Check P95 latency
         query_latency = """
@@ -506,18 +506,20 @@ class ProviderAnalyticsEngine:
         latency_rows = await self.db.fetch(query_latency, start_time)
 
         for row in latency_rows:
-            p95 = float(row['p95']) if row['p95'] else 0.0
+            p95 = float(row["p95"]) if row["p95"] else 0.0
             if p95 > self.alert_thresholds["latency_p95"]:
-                alerts.append(Alert(
-                    alert_id=f"latency_{row['provider']}_{int(datetime.utcnow().timestamp())}",
-                    severity=AlertSeverity.CRITICAL,
-                    message=f"High P95 latency for {row['provider']}: {p95:.2f}s",
-                    provider=row['provider'],
-                    metric="latency_p95",
-                    value=p95,
-                    threshold=self.alert_thresholds["latency_p95"],
-                    timestamp=datetime.utcnow()
-                ))
+                alerts.append(
+                    Alert(
+                        alert_id=f"latency_{row['provider']}_{int(datetime.utcnow().timestamp())}",
+                        severity=AlertSeverity.CRITICAL,
+                        message=f"High P95 latency for {row['provider']}: {p95:.2f}s",
+                        provider=row["provider"],
+                        metric="latency_p95",
+                        value=p95,
+                        threshold=self.alert_thresholds["latency_p95"],
+                        timestamp=datetime.utcnow(),
+                    )
+                )
 
         # Check failure rate
         query_failures = """
@@ -533,29 +535,28 @@ class ProviderAnalyticsEngine:
         failure_rows = await self.db.fetch(query_failures, start_time)
 
         for row in failure_rows:
-            total = int(row['total'])
-            failures = int(row['failures'])
+            total = int(row["total"])
+            failures = int(row["failures"])
             failure_rate = failures / total if total > 0 else 0.0
 
             if failure_rate > self.alert_thresholds["failure_rate"]:
-                alerts.append(Alert(
-                    alert_id=f"failure_{row['provider']}_{int(datetime.utcnow().timestamp())}",
-                    severity=AlertSeverity.CRITICAL,
-                    message=f"High failure rate for {row['provider']}: {failure_rate:.1%}",
-                    provider=row['provider'],
-                    metric="failure_rate",
-                    value=failure_rate,
-                    threshold=self.alert_thresholds["failure_rate"],
-                    timestamp=datetime.utcnow()
-                ))
+                alerts.append(
+                    Alert(
+                        alert_id=f"failure_{row['provider']}_{int(datetime.utcnow().timestamp())}",
+                        severity=AlertSeverity.CRITICAL,
+                        message=f"High failure rate for {row['provider']}: {failure_rate:.1%}",
+                        provider=row["provider"],
+                        metric="failure_rate",
+                        value=failure_rate,
+                        threshold=self.alert_thresholds["failure_rate"],
+                        timestamp=datetime.utcnow(),
+                    )
+                )
 
         return alerts
 
     async def get_trend_analysis(
-        self,
-        metric: str,
-        days: int = 30,
-        granularity: str = "1 day"
+        self, metric: str, days: int = 30, granularity: str = "1 day"
     ) -> List[Dict[str, Any]]:
         """
         Get trend analysis for a metric over time.
@@ -623,17 +624,12 @@ class ProviderAnalyticsEngine:
         rows = await self.db.fetch(query, start_time)
 
         return [
-            {
-                "time": row['time'].isoformat(),
-                "value": float(row['value'])
-            }
+            {"time": row["time"].isoformat(), "value": float(row["value"])}
             for row in rows
         ]
 
     async def compare_providers(
-        self,
-        providers: List[str],
-        days: int = 7
+        self, providers: List[str], days: int = 7
     ) -> Dict[str, ProviderMetrics]:
         """
         Compare multiple providers side-by-side.
@@ -656,6 +652,7 @@ class ProviderAnalyticsEngine:
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
         # Initialize database pool
         db_pool = await asyncpg.create_pool(
@@ -663,7 +660,7 @@ if __name__ == "__main__":
             port=5432,
             database="llm_metrics",
             user="postgres",
-            password="postgres"
+            password="postgres",
         )
 
         engine = ProviderAnalyticsEngine(db_pool)
@@ -689,7 +686,9 @@ if __name__ == "__main__":
 
         # Provider comparison
         print("\n=== Provider Comparison ===")
-        comparison = await engine.compare_providers(["fireworks", "together", "anthropic"])
+        comparison = await engine.compare_providers(
+            ["fireworks", "together", "anthropic"]
+        )
         for provider, metrics in comparison.items():
             print(f"\n{provider}:")
             print(f"  Success Rate: {metrics.success_rate:.1%}")

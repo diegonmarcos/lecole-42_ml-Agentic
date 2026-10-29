@@ -12,16 +12,18 @@ Features:
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Any, AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
+from src.providers.router import Tier, build_local_router
 
 logger = logging.getLogger(__name__)
 
 
 class TerminationReason(Enum):
     """Reason for stream termination"""
+
     COMPLETE = "complete"
     EARLY_STOP = "early_stop"
     QUALITY_THRESHOLD = "quality_threshold"
@@ -33,6 +35,7 @@ class TerminationReason(Enum):
 @dataclass
 class StreamChunk:
     """Streaming chunk"""
+
     content: str
     chunk_index: int
     timestamp: float = field(default_factory=time.time)
@@ -42,6 +45,7 @@ class StreamChunk:
 @dataclass
 class StreamResult:
     """Complete stream result"""
+
     full_content: str
     chunks: List[StreamChunk]
     termination_reason: TerminationReason
@@ -61,7 +65,7 @@ class QualityEvaluator:
         self,
         min_length: int = 50,
         coherence_threshold: float = 0.7,
-        check_interval: int = 20  # tokens
+        check_interval: int = 20,  # tokens
     ):
         """
         Initialize quality evaluator.
@@ -76,9 +80,7 @@ class QualityEvaluator:
         self.check_interval = check_interval
 
     def should_terminate_early(
-        self,
-        accumulated_text: str,
-        token_count: int
+        self, accumulated_text: str, token_count: int
     ) -> tuple[bool, Optional[str]]:
         """
         Check if stream should terminate early.
@@ -111,7 +113,7 @@ class QualityEvaluator:
                 return True, f"Detected completion marker: {marker[:20]}"
 
         # Check for repetition (sign of poor quality)
-        lines = accumulated_text.split('\n')
+        lines = accumulated_text.split("\n")
         if len(lines) > 3:
             # Check last 3 lines for repetition
             recent_lines = lines[-3:]
@@ -144,7 +146,7 @@ class StreamManager:
         self,
         buffer_size: int = 10,
         timeout: float = 60.0,
-        enable_quality_check: bool = True
+        enable_quality_check: bool = True,
     ):
         """
         Initialize stream manager.
@@ -164,7 +166,7 @@ class StreamManager:
         self._current_result: Optional[StreamResult] = None
         self._active_streams: Dict[str, asyncio.Task] = {}
 
-    async def stream(
+    async def stream(  # pylint: disable=too-many-locals
         self,
         provider_router,
         tier,
@@ -174,7 +176,7 @@ class StreamManager:
         max_tokens: Optional[int] = None,
         stop_sequences: Optional[List[str]] = None,
         quality_check: bool = True,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """
         Stream LLM response.
@@ -207,15 +209,12 @@ class StreamManager:
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                **kwargs
+                **kwargs,
             ):
                 accumulated_text += content_chunk
 
                 # Create chunk
-                chunk = StreamChunk(
-                    content=content_chunk,
-                    chunk_index=chunk_index
-                )
+                chunk = StreamChunk(content=content_chunk, chunk_index=chunk_index)
                 chunks.append(chunk)
                 chunk_index += 1
 
@@ -227,7 +226,7 @@ class StreamManager:
                     for seq in stop_sequences:
                         if seq in accumulated_text:
                             termination_reason = TerminationReason.EARLY_STOP
-                            logger.info(f"Early stop triggered by sequence: {seq}")
+                            logger.info("Early stop triggered by sequence: %s", seq)
                             break
 
                     if termination_reason == TerminationReason.EARLY_STOP:
@@ -236,28 +235,27 @@ class StreamManager:
                 # Quality check
                 if quality_check and self.enable_quality_check:
                     should_stop, reason = self.quality_evaluator.should_terminate_early(
-                        accumulated_text,
-                        chunk_index
+                        accumulated_text, chunk_index
                     )
 
                     if should_stop:
                         termination_reason = TerminationReason.QUALITY_THRESHOLD
-                        logger.info(f"Early termination: {reason}")
+                        logger.info("Early termination: %s", reason)
                         break
 
                 # Timeout check
                 if time.time() - start_time > self.timeout:
                     termination_reason = TerminationReason.TIMEOUT
-                    logger.warning(f"Stream timeout after {self.timeout}s")
+                    logger.warning("Stream timeout after %ss", self.timeout)
                     break
 
         except asyncio.CancelledError:
             termination_reason = TerminationReason.USER_CANCELLED
             logger.info("Stream cancelled by user")
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             termination_reason = TerminationReason.ERROR
-            logger.error(f"Stream error: {e}", exc_info=True)
+            logger.error("Stream error: %s", e, exc_info=True)
 
         finally:
             # Store result
@@ -268,10 +266,7 @@ class StreamManager:
                 termination_reason=termination_reason,
                 total_tokens=chunk_index,
                 duration=duration,
-                metadata={
-                    "model": model,
-                    "tier": str(tier)
-                }
+                metadata={"model": model, "tier": str(tier)},
             )
 
     def get_result(self) -> Optional[StreamResult]:
@@ -286,7 +281,7 @@ class StreamManager:
         messages: List[Dict[str, str]],
         on_chunk: Callable[[StreamChunk], Any],
         on_complete: Optional[Callable[[StreamResult], Any]] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Stream with callbacks.
@@ -305,7 +300,7 @@ class StreamManager:
             tier=tier,
             model=model,
             messages=messages,
-            **kwargs
+            **kwargs,
         ):
             # Call chunk callback
             if asyncio.iscoroutinefunction(on_chunk):
@@ -314,8 +309,8 @@ class StreamManager:
                 on_chunk(chunk)
 
         # Call complete callback
-        if on_complete:
-            result = self.get_result()
+        result = self.get_result()
+        if on_complete and result is not None:
             if asyncio.iscoroutinefunction(on_complete):
                 await on_complete(result)
             else:
@@ -331,34 +326,24 @@ class StreamManager:
         return {
             "total_tokens": result.total_tokens,
             "duration": result.duration,
-            "tokens_per_second": result.total_tokens / result.duration if result.duration > 0 else 0,
+            "tokens_per_second": result.total_tokens / result.duration
+            if result.duration > 0
+            else 0,
             "termination_reason": result.termination_reason.value,
             "content_length": len(result.full_content),
-            "chunk_count": len(result.chunks)
+            "chunk_count": len(result.chunks),
         }
 
 
 # Example usage
 if __name__ == "__main__":
-    async def main():
-        from src.providers.ollama_provider import OllamaProvider
-        from src.providers.router import ProviderRouter, Tier, ProviderConfig
 
+    async def main():
         # Setup
-        router = ProviderRouter()
-        router.register(
-            "ollama",
-            OllamaProvider(),
-            tier=Tier.LOCAL_FREE,
-            models=["llama3.1:8b"],
-            privacy_compatible=True
-        )
+        router = build_local_router()
 
         # Create stream manager
-        manager = StreamManager(
-            enable_quality_check=True,
-            timeout=30.0
-        )
+        manager = StreamManager(enable_quality_check=True, timeout=30.0)
 
         print("Streaming LLM response:\n")
 
@@ -367,11 +352,9 @@ if __name__ == "__main__":
             provider_router=router,
             tier=Tier.LOCAL_FREE,
             model="llama3.1:8b",
-            messages=[
-                {"role": "user", "content": "Write a short poem about AI."}
-            ],
+            messages=[{"role": "user", "content": "Write a short poem about AI."}],
             quality_check=True,
-            max_tokens=200
+            max_tokens=200,
         ):
             print(chunk.content, end="", flush=True)
 

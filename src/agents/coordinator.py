@@ -15,18 +15,18 @@ Features:
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Any, Callable
+import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import deque
-import json
-
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class MessageType(Enum):
     """Message types"""
+
     TASK_ASSIGNMENT = "task_assignment"
     TASK_RESULT = "task_result"
     AGENT_REQUEST = "agent_request"
@@ -38,6 +38,7 @@ class MessageType(Enum):
 @dataclass
 class Message:
     """Agent message"""
+
     message_id: str
     type: MessageType
     sender: str
@@ -51,6 +52,7 @@ class Message:
 @dataclass
 class AgentInfo:
     """Agent registration info"""
+
     agent_id: str
     agent_type: str
     capabilities: List[str]
@@ -73,7 +75,7 @@ class EventBus:
         Args:
             max_history: Maximum message history to keep
         """
-        self.subscribers: Dict[str, List[Callable]] = {}
+        self.subscribers: Dict[str, List[Dict[str, Any]]] = {}
         self.message_history: deque = deque(maxlen=max_history)
         self._lock = asyncio.Lock()
 
@@ -81,7 +83,7 @@ class EventBus:
         self,
         agent_id: str,
         callback: Callable[[Message], Any],
-        message_types: Optional[List[MessageType]] = None
+        message_types: Optional[List[MessageType]] = None,
     ):
         """
         Subscribe to messages.
@@ -95,12 +97,11 @@ class EventBus:
             if agent_id not in self.subscribers:
                 self.subscribers[agent_id] = []
 
-            self.subscribers[agent_id].append({
-                "callback": callback,
-                "message_types": message_types
-            })
+            self.subscribers[agent_id].append(
+                {"callback": callback, "message_types": message_types}
+            )
 
-        logger.debug(f"Agent {agent_id} subscribed to event bus")
+        logger.debug("Agent %s subscribed to event bus", agent_id)
 
     async def unsubscribe(self, agent_id: str):
         """Unsubscribe from messages"""
@@ -108,7 +109,7 @@ class EventBus:
             if agent_id in self.subscribers:
                 del self.subscribers[agent_id]
 
-        logger.debug(f"Agent {agent_id} unsubscribed from event bus")
+        logger.debug("Agent %s unsubscribed from event bus", agent_id)
 
     async def publish(self, message: Message):
         """
@@ -138,7 +139,10 @@ class EventBus:
             if recipient_id in self.subscribers:
                 for sub_info in self.subscribers[recipient_id]:
                     # Check message type filter
-                    if sub_info["message_types"] and message.type not in sub_info["message_types"]:
+                    if (
+                        sub_info["message_types"]
+                        and message.type not in sub_info["message_types"]
+                    ):
                         continue
 
                     # Call subscriber callback
@@ -158,14 +162,14 @@ class EventBus:
                 await callback(message)
             else:
                 callback(message)
-        except Exception as e:
-            logger.error(f"Callback error: {e}", exc_info=True)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Callback error: %s", e, exc_info=True)
 
     def get_history(
         self,
         count: int = 100,
         message_type: Optional[MessageType] = None,
-        sender: Optional[str] = None
+        sender: Optional[str] = None,
     ) -> List[Message]:
         """
         Get message history.
@@ -229,7 +233,7 @@ class AgentCoordinator:
         agent_id: str,
         agent_type: str,
         capabilities: List[str],
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
     ):
         """
         Register an agent.
@@ -245,14 +249,16 @@ class AgentCoordinator:
                 agent_id=agent_id,
                 agent_type=agent_type,
                 capabilities=capabilities,
-                status="idle"
+                status="idle",
             )
 
         # Subscribe to messages
         if callback:
             await self.event_bus.subscribe(agent_id, callback)
 
-        logger.info(f"Registered agent: {agent_id} ({agent_type}) - {capabilities}")
+        logger.info(
+            "Registered agent: %s (%s) - %s", agent_id, agent_type, capabilities
+        )
 
     async def unregister_agent(self, agent_id: str):
         """Unregister an agent"""
@@ -262,7 +268,7 @@ class AgentCoordinator:
             if agent_id in self.agents:
                 del self.agents[agent_id]
 
-        logger.info(f"Unregistered agent: {agent_id}")
+        logger.info("Unregistered agent: %s", agent_id)
 
     async def start(self):
         """Start coordinator"""
@@ -275,10 +281,7 @@ class AgentCoordinator:
         logger.info("Agent coordinator stopped")
 
     async def assign_task(
-        self,
-        agent_id: str,
-        task: Dict[str, Any],
-        priority: int = 0
+        self, agent_id: str, task: Dict[str, Any], priority: int = 0
     ) -> str:
         """
         Assign task to agent.
@@ -291,7 +294,6 @@ class AgentCoordinator:
         Returns:
             Message ID
         """
-        import uuid
 
         message_id = str(uuid.uuid4())
 
@@ -301,7 +303,7 @@ class AgentCoordinator:
             sender="coordinator",
             recipient=agent_id,
             content=task,
-            metadata={"priority": priority}
+            metadata={"priority": priority},
         )
 
         await self.event_bus.publish(message)
@@ -313,15 +315,11 @@ class AgentCoordinator:
                 self.agents[agent_id].message_count += 1
                 self.agents[agent_id].last_activity = time.time()
 
-        logger.info(f"Assigned task to {agent_id}: {message_id}")
+        logger.info("Assigned task to %s: %s", agent_id, message_id)
 
         return message_id
 
-    async def broadcast_event(
-        self,
-        event_type: str,
-        data: Any
-    ):
+    async def broadcast_event(self, event_type: str, data: Any):
         """
         Broadcast system event to all agents.
 
@@ -329,22 +327,19 @@ class AgentCoordinator:
             event_type: Event type
             data: Event data
         """
-        import uuid
 
         message = Message(
             message_id=str(uuid.uuid4()),
             type=MessageType.SYSTEM_EVENT,
             sender="coordinator",
             recipient=None,  # Broadcast
-            content={"event_type": event_type, "data": data}
+            content={"event_type": event_type, "data": data},
         )
 
         await self.event_bus.publish(message)
 
     async def wait_for_result(
-        self,
-        agent_id: str,
-        timeout: float = 60.0
+        self, agent_id: str, timeout: float = 60.0
     ) -> Optional[Message]:
         """
         Wait for task result from agent.
@@ -361,9 +356,7 @@ class AgentCoordinator:
         while time.time() - start_time < timeout:
             # Check message history for results from this agent
             history = self.event_bus.get_history(
-                count=10,
-                message_type=MessageType.TASK_RESULT,
-                sender=agent_id
+                count=10, message_type=MessageType.TASK_RESULT, sender=agent_id
             )
 
             if history:
@@ -371,7 +364,7 @@ class AgentCoordinator:
 
             await asyncio.sleep(0.1)
 
-        logger.warning(f"Timeout waiting for result from {agent_id}")
+        logger.warning("Timeout waiting for result from %s", agent_id)
         return None
 
     def get_agent_status(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
@@ -393,7 +386,7 @@ class AgentCoordinator:
                     "status": agent.status,
                     "capabilities": agent.capabilities,
                     "message_count": agent.message_count,
-                    "last_activity": agent.last_activity
+                    "last_activity": agent.last_activity,
                 }
             return {}
 
@@ -404,29 +397,30 @@ class AgentCoordinator:
                     "agent_id": a.agent_id,
                     "type": a.agent_type,
                     "status": a.status,
-                    "message_count": a.message_count
+                    "message_count": a.message_count,
                 }
                 for a in self.agents.values()
-            ]
+            ],
         }
 
     def get_message_stats(self) -> Dict[str, Any]:
         """Get message statistics"""
         total_messages = len(self.event_bus.message_history)
 
-        by_type = {}
+        by_type: Dict[str, int] = {}
         for msg in self.event_bus.message_history:
             by_type[msg.type.value] = by_type.get(msg.type.value, 0) + 1
 
         return {
             "total_messages": total_messages,
             "by_type": by_type,
-            "active_subscribers": len(self.event_bus.subscribers)
+            "active_subscribers": len(self.event_bus.subscribers),
         }
 
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
         coordinator = AgentCoordinator()
 
@@ -441,25 +435,29 @@ if __name__ == "__main__":
             result_msg = Message(
                 message_id=f"result-{message.message_id}",
                 type=MessageType.TASK_RESULT,
-                sender=message.recipient,
+                sender=message.recipient or "",
                 recipient=message.sender,
                 content={"status": "completed", "result": "Success"},
-                parent_id=message.message_id
+                parent_id=message.message_id,
             )
 
             await coordinator.event_bus.publish(result_msg)
 
         # Register agents
-        await coordinator.register_agent("planner", "planner", ["planning"], agent_callback)
+        await coordinator.register_agent(
+            "planner", "planner", ["planning"], agent_callback
+        )
         await coordinator.register_agent("coder", "coder", ["coding"], agent_callback)
-        await coordinator.register_agent("reviewer", "reviewer", ["review"], agent_callback)
+        await coordinator.register_agent(
+            "reviewer", "reviewer", ["review"], agent_callback
+        )
 
         # Start
         await coordinator.start()
 
         # Assign tasks
-        task_id1 = await coordinator.assign_task("planner", {"task": "Plan feature"})
-        task_id2 = await coordinator.assign_task("coder", {"task": "Write code"})
+        await coordinator.assign_task("planner", {"task": "Plan feature"})
+        await coordinator.assign_task("coder", {"task": "Write code"})
 
         # Wait for results
         result1 = await coordinator.wait_for_result("planner", timeout=5)

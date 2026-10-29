@@ -10,31 +10,32 @@ Comprehensive health checks for all system components:
 - System resources (CPU, memory, disk)
 """
 
-from fastapi import APIRouter, Response, status
-from typing import Dict, Any, List
-from enum import Enum
-from dataclasses import dataclass, asdict
-from datetime import datetime
 import asyncio
-import time
-import psutil
 import logging
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
+
+import psutil
+from fastapi import APIRouter, Response, status
 
 try:
-    import redis.asyncio as redis
     import asyncpg
+    import redis.asyncio as redis
 except ImportError:
-    redis = None
-    asyncpg = None
+    redis = None  # type: ignore[assignment]
+    asyncpg = None  # type: ignore[assignment]
 
 import aiohttp
-
 
 logger = logging.getLogger(__name__)
 
 
 class HealthStatus(Enum):
     """Health status enum"""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -43,14 +44,26 @@ class HealthStatus(Enum):
 @dataclass
 class ComponentHealth:
     """Health status of a component"""
+
     name: str
     status: HealthStatus
     latency_ms: float = 0.0
     message: str = ""
-    details: Dict[str, Any] = None
+    details: Optional[Dict[str, Any]] = None
 
 
 router = APIRouter(prefix="/health", tags=["health"])
+
+
+def _as_health(
+    name: str, result: Union[ComponentHealth, BaseException]
+) -> ComponentHealth:
+    """Turn an exception returned by asyncio.gather into an unhealthy component."""
+    if isinstance(result, BaseException):
+        return ComponentHealth(
+            name=name, status=HealthStatus.UNHEALTHY, message=f"Check failed: {result}"
+        )
+    return result
 
 
 class HealthChecker:
@@ -73,7 +86,7 @@ class HealthChecker:
                 host=self.redis_host,
                 port=self.redis_port,
                 socket_connect_timeout=2,
-                decode_responses=True
+                decode_responses=True,
             )
 
             # Ping
@@ -85,7 +98,7 @@ class HealthChecker:
             value = await client.get(test_key)
 
             if value != "test":
-                raise Exception("Redis read/write test failed")
+                raise RuntimeError("Redis read/write test failed")
 
             # Get info
             info = await client.info("stats")
@@ -101,17 +114,17 @@ class HealthChecker:
                 message="Operational",
                 details={
                     "connected_clients": info.get("connected_clients", 0),
-                    "used_memory": info.get("used_memory_human", "N/A")
-                }
+                    "used_memory": info.get("used_memory_human", "N/A"),
+                },
             )
 
-        except Exception as e:
-            logger.error(f"Redis health check failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Redis health check failed: %s", e)
             return ComponentHealth(
                 name="Redis",
                 status=HealthStatus.UNHEALTHY,
                 latency_ms=(time.time() - start) * 1000,
-                message=f"Error: {str(e)}"
+                message=f"Error: {str(e)}",
             )
 
     async def check_postgres(self) -> ComponentHealth:
@@ -124,23 +137,25 @@ class HealthChecker:
                 user="postgres",
                 password="postgres",
                 database="postgres",
-                timeout=2
+                timeout=2,
             )
 
             # Test query
             result = await conn.fetchval("SELECT 1")
 
             if result != 1:
-                raise Exception("PostgreSQL test query failed")
+                raise RuntimeError("PostgreSQL test query failed")
 
             # Get stats
-            stats = await conn.fetchrow("""
+            stats = await conn.fetchrow(
+                """
                 SELECT
                     count(*) as active_connections,
                     pg_database_size('postgres') as db_size
                 FROM pg_stat_activity
                 WHERE state = 'active'
-            """)
+            """
+            )
 
             latency = (time.time() - start) * 1000
 
@@ -153,17 +168,17 @@ class HealthChecker:
                 message="Operational",
                 details={
                     "active_connections": stats["active_connections"],
-                    "database_size_mb": stats["db_size"] // (1024 * 1024)
-                }
+                    "database_size_mb": stats["db_size"] // (1024 * 1024),
+                },
             )
 
-        except Exception as e:
-            logger.error(f"PostgreSQL health check failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("PostgreSQL health check failed: %s", e)
             return ComponentHealth(
                 name="PostgreSQL",
                 status=HealthStatus.UNHEALTHY,
                 latency_ms=(time.time() - start) * 1000,
-                message=f"Error: {str(e)}"
+                message=f"Error: {str(e)}",
             )
 
     async def check_qdrant(self) -> ComponentHealth:
@@ -172,11 +187,10 @@ class HealthChecker:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"{self.qdrant_url}/health",
-                    timeout=aiohttp.ClientTimeout(total=2)
+                    f"{self.qdrant_url}/health", timeout=aiohttp.ClientTimeout(total=2)
                 ) as response:
                     if response.status != 200:
-                        raise Exception(f"HTTP {response.status}")
+                        raise RuntimeError(f"HTTP {response.status}")
 
                     data = await response.json()
 
@@ -187,16 +201,16 @@ class HealthChecker:
                         status=HealthStatus.HEALTHY,
                         latency_ms=latency,
                         message="Operational",
-                        details=data
+                        details=data,
                     )
 
-        except Exception as e:
-            logger.error(f"Qdrant health check failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Qdrant health check failed: %s", e)
             return ComponentHealth(
                 name="Qdrant",
                 status=HealthStatus.UNHEALTHY,
                 latency_ms=(time.time() - start) * 1000,
-                message=f"Error: {str(e)}"
+                message=f"Error: {str(e)}",
             )
 
     async def check_ollama(self) -> ComponentHealth:
@@ -206,10 +220,10 @@ class HealthChecker:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"{self.ollama_url}/api/tags",
-                    timeout=aiohttp.ClientTimeout(total=2)
+                    timeout=aiohttp.ClientTimeout(total=2),
                 ) as response:
                     if response.status != 200:
-                        raise Exception(f"HTTP {response.status}")
+                        raise RuntimeError(f"HTTP {response.status}")
 
                     data = await response.json()
 
@@ -220,18 +234,16 @@ class HealthChecker:
                         status=HealthStatus.HEALTHY,
                         latency_ms=latency,
                         message="Operational",
-                        details={
-                            "models_count": len(data.get("models", []))
-                        }
+                        details={"models_count": len(data.get("models", []))},
                     )
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             # Ollama is optional
             return ComponentHealth(
                 name="Ollama",
                 status=HealthStatus.DEGRADED,
                 latency_ms=(time.time() - start) * 1000,
-                message=f"Not available (optional): {str(e)}"
+                message=f"Not available (optional): {str(e)}",
             )
 
     async def check_jan(self) -> ComponentHealth:
@@ -240,11 +252,10 @@ class HealthChecker:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"{self.jan_url}/health",
-                    timeout=aiohttp.ClientTimeout(total=2)
+                    f"{self.jan_url}/health", timeout=aiohttp.ClientTimeout(total=2)
                 ) as response:
                     if response.status != 200:
-                        raise Exception(f"HTTP {response.status}")
+                        raise RuntimeError(f"HTTP {response.status}")
 
                     latency = (time.time() - start) * 1000
 
@@ -252,16 +263,16 @@ class HealthChecker:
                         name="Jan",
                         status=HealthStatus.HEALTHY,
                         latency_ms=latency,
-                        message="Operational"
+                        message="Operational",
                     )
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             # Jan is optional
             return ComponentHealth(
                 name="Jan",
                 status=HealthStatus.DEGRADED,
                 latency_ms=(time.time() - start) * 1000,
-                message=f"Not available (optional): {str(e)}"
+                message=f"Not available (optional): {str(e)}",
             )
 
     async def check_mcp_servers(self) -> List[ComponentHealth]:
@@ -269,7 +280,7 @@ class HealthChecker:
         mcp_servers = [
             ("MCP Filesystem", "http://localhost:3001/health"),
             ("MCP Git", "http://localhost:3002/health"),
-            ("MCP Memory", "http://localhost:3003/health")
+            ("MCP Memory", "http://localhost:3003/health"),
         ]
 
         results = []
@@ -279,29 +290,32 @@ class HealthChecker:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
-                        url,
-                        timeout=aiohttp.ClientTimeout(total=2)
+                        url, timeout=aiohttp.ClientTimeout(total=2)
                     ) as response:
                         if response.status != 200:
-                            raise Exception(f"HTTP {response.status}")
+                            raise RuntimeError(f"HTTP {response.status}")
 
                         latency = (time.time() - start) * 1000
 
-                        results.append(ComponentHealth(
-                            name=name,
-                            status=HealthStatus.HEALTHY,
-                            latency_ms=latency,
-                            message="Operational"
-                        ))
+                        results.append(
+                            ComponentHealth(
+                                name=name,
+                                status=HealthStatus.HEALTHY,
+                                latency_ms=latency,
+                                message="Operational",
+                            )
+                        )
 
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 # MCP servers are optional
-                results.append(ComponentHealth(
-                    name=name,
-                    status=HealthStatus.DEGRADED,
-                    latency_ms=(time.time() - start) * 1000,
-                    message=f"Not available (optional): {str(e)}"
-                ))
+                results.append(
+                    ComponentHealth(
+                        name=name,
+                        status=HealthStatus.DEGRADED,
+                        latency_ms=(time.time() - start) * 1000,
+                        message=f"Not available (optional): {str(e)}",
+                    )
+                )
 
         return results
 
@@ -316,42 +330,42 @@ class HealthChecker:
             memory_percent = memory.percent
 
             # Disk usage
-            disk = psutil.disk_usage('/')
+            disk = psutil.disk_usage("/")
             disk_percent = disk.percent
 
             # Determine status
-            status = HealthStatus.HEALTHY
+            overall = HealthStatus.HEALTHY
 
             if cpu_percent > 80 or memory_percent > 80 or disk_percent > 80:
-                status = HealthStatus.DEGRADED
+                overall = HealthStatus.DEGRADED
 
             if cpu_percent > 95 or memory_percent > 95 or disk_percent > 95:
-                status = HealthStatus.UNHEALTHY
+                overall = HealthStatus.UNHEALTHY
 
             return ComponentHealth(
                 name="System Resources",
-                status=status,
+                status=overall,
                 message="Operational",
                 details={
                     "cpu_percent": round(cpu_percent, 2),
                     "memory_percent": round(memory_percent, 2),
                     "disk_percent": round(disk_percent, 2),
-                    "memory_available_mb": round(memory.available / 1024 / 1024, 2)
-                }
+                    "memory_available_mb": round(memory.available / 1024 / 1024, 2),
+                },
             )
 
-        except Exception as e:
-            logger.error(f"System resources check failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("System resources check failed: %s", e)
             return ComponentHealth(
                 name="System Resources",
                 status=HealthStatus.DEGRADED,
-                message=f"Error: {str(e)}"
+                message=f"Error: {str(e)}",
             )
 
     async def check_all(self) -> Dict[str, Any]:
         """Run all health checks in parallel"""
         # Run all checks concurrently
-        results = await asyncio.gather(
+        results: List[Any] = await asyncio.gather(
             self.check_redis(),
             self.check_postgres(),
             self.check_qdrant(),
@@ -359,11 +373,22 @@ class HealthChecker:
             self.check_jan(),
             self.check_mcp_servers(),
             self.check_system_resources(),
-            return_exceptions=True
+            return_exceptions=True,
         )
 
         # Flatten MCP servers list
-        redis_health, pg_health, qdrant_health, ollama_health, jan_health, mcp_healths, system_health = results
+        redis_health = _as_health("redis", results[0])
+        pg_health = _as_health("postgres", results[1])
+        qdrant_health = _as_health("qdrant", results[2])
+        ollama_health = _as_health("ollama", results[3])
+        jan_health = _as_health("jan", results[4])
+        mcp_result = results[5]
+        mcp_healths: List[ComponentHealth] = (
+            [_as_health("mcp", mcp_result)]
+            if isinstance(mcp_result, BaseException)
+            else mcp_result
+        )
+        system_health = _as_health("system", results[6])
 
         # Combine all components
         components = [
@@ -373,11 +398,13 @@ class HealthChecker:
             ollama_health,
             jan_health,
             *mcp_healths,
-            system_health
+            system_health,
         ]
 
         # Determine overall status
-        unhealthy_count = sum(1 for c in components if c.status == HealthStatus.UNHEALTHY)
+        unhealthy_count = sum(
+            1 for c in components if c.status == HealthStatus.UNHEALTHY
+        )
         degraded_count = sum(1 for c in components if c.status == HealthStatus.DEGRADED)
 
         if unhealthy_count > 0:
@@ -396,16 +423,18 @@ class HealthChecker:
                     "status": c.status.value,
                     "latency_ms": round(c.latency_ms, 2),
                     "message": c.message,
-                    **({"details": c.details} if c.details else {})
+                    **({"details": c.details} if c.details else {}),
                 }
                 for c in components
             },
             "summary": {
                 "total_components": len(components),
-                "healthy": sum(1 for c in components if c.status == HealthStatus.HEALTHY),
+                "healthy": sum(
+                    1 for c in components if c.status == HealthStatus.HEALTHY
+                ),
                 "degraded": degraded_count,
-                "unhealthy": unhealthy_count
-            }
+                "unhealthy": unhealthy_count,
+            },
         }
 
 
@@ -447,10 +476,7 @@ async def liveness_probe():
 
     Simple check that the API is running.
     """
-    return {
-        "status": "alive",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
 
 
 @router.get("/ready")
@@ -462,15 +488,17 @@ async def readiness_probe(response: Response):
     Verifies critical dependencies (Redis, PostgreSQL).
     """
     # Check only critical components
-    redis_health, pg_health = await asyncio.gather(
+    redis_result, pg_result = await asyncio.gather(
         health_checker.check_redis(),
         health_checker.check_postgres(),
-        return_exceptions=True
+        return_exceptions=True,
     )
+    redis_health = _as_health("redis", redis_result)
+    pg_health = _as_health("postgres", pg_result)
 
     ready = (
-        redis_health.status == HealthStatus.HEALTHY and
-        pg_health.status == HealthStatus.HEALTHY
+        redis_health.status == HealthStatus.HEALTHY
+        and pg_health.status == HealthStatus.HEALTHY
     )
 
     if not ready:
@@ -481,13 +509,13 @@ async def readiness_probe(response: Response):
         "timestamp": datetime.utcnow().isoformat(),
         "components": {
             "redis": redis_health.status.value,
-            "postgres": pg_health.status.value
-        }
+            "postgres": pg_health.status.value,
+        },
     }
 
 
 @router.get("/startup")
-async def startup_probe(response: Response):
+async def startup_probe(_response: Response):
     """
     Kubernetes startup probe.
 
@@ -497,5 +525,5 @@ async def startup_probe(response: Response):
     return {
         "status": "started",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": "4.2.0"
+        "version": "4.2.0",
     }

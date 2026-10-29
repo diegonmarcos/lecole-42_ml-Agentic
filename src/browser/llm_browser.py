@@ -13,12 +13,12 @@ Based on browser-use architecture (3-5x faster than manual automation).
 import asyncio
 import json
 import logging
-from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-from .stealth_browser import StealthBrowser, BrowserConfig, NavigationResult
-from src.providers.router import ProviderRouter, Tier
+from src.providers.router import ProviderRouter, Tier, build_local_router
 
+from .stealth_browser import BrowserConfig, StealthBrowser
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BrowserAction:
     """Browser action to perform"""
+
     action_type: str  # navigate, click, fill, wait, extract
     selector: Optional[str] = None
     value: Optional[str] = None
@@ -36,6 +37,7 @@ class BrowserAction:
 @dataclass
 class WorkflowResult:
     """Result of workflow execution"""
+
     success: bool
     steps_completed: int
     extracted_data: Optional[Dict[str, Any]] = None
@@ -67,8 +69,8 @@ class LLMBrowser:
         self,
         provider_router: ProviderRouter,
         tier: Tier = Tier.CLOUD_CHEAP,
-        model: str = None,
-        browser_config: BrowserConfig = None
+        model: Optional[str] = None,
+        browser_config: Optional[BrowserConfig] = None,
     ):
         """
         Initialize LLM-driven browser.
@@ -88,20 +90,16 @@ class LLMBrowser:
         """Get default model for tier"""
         if tier == Tier.LOCAL_FREE:
             return "llama3.1:8b"
-        elif tier == Tier.CLOUD_CHEAP:
+        if tier == Tier.CLOUD_CHEAP:
             return "meta-llama/Llama-3.1-8B-Instruct-Turbo"
-        else:
-            return "claude-3-5-haiku-20241022"
+        return "claude-3-5-haiku-20241022"
 
     async def start(self):
         """Start browser"""
         await self.browser.start()
 
     async def execute_task(
-        self,
-        instruction: str,
-        max_steps: int = 10,
-        validate: bool = True
+        self, instruction: str, max_steps: int = 10, validate: bool = True
     ) -> WorkflowResult:
         """
         Execute natural language task using LLM reasoning.
@@ -114,7 +112,7 @@ class LLMBrowser:
         Returns:
             WorkflowResult with success status and extracted data
         """
-        logger.info(f"Executing task: {instruction}")
+        logger.info("Executing task: %s", instruction)
 
         steps_completed = 0
         extracted_data = {}
@@ -126,7 +124,13 @@ class LLMBrowser:
 
             # Execute actions
             for i, action in enumerate(actions[:max_steps]):
-                logger.info(f"Step {i+1}/{len(actions)}: {action.action_type} - {action.reasoning}")
+                logger.info(
+                    "Step %s/%s: %s - %s",
+                    i + 1,
+                    len(actions),
+                    action.action_type,
+                    action.reasoning,
+                )
 
                 success = await self._execute_action(action)
 
@@ -145,9 +149,7 @@ class LLMBrowser:
             validation_score = None
             if validate and steps_completed > 0:
                 validation_score = await self._validate_result(
-                    instruction,
-                    extracted_data,
-                    await self.browser.get_page_text()
+                    instruction, extracted_data, await self.browser.get_page_text()
                 )
 
             success = error is None and steps_completed > 0
@@ -157,15 +159,13 @@ class LLMBrowser:
                 steps_completed=steps_completed,
                 extracted_data=extracted_data if extracted_data else None,
                 error=error,
-                validation_score=validation_score
+                validation_score=validation_score,
             )
 
-        except Exception as e:
-            logger.error(f"Task execution failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Task execution failed: %s", e)
             return WorkflowResult(
-                success=False,
-                steps_completed=steps_completed,
-                error=str(e)
+                success=False, steps_completed=steps_completed, error=str(e)
             )
 
     async def _plan_workflow(self, instruction: str) -> List[BrowserAction]:
@@ -178,7 +178,8 @@ class LLMBrowser:
         Returns:
             List of browser actions to execute
         """
-        prompt = f"""You are a browser automation planner. Given a user instruction, break it down into specific browser actions.
+        prompt = f"""You are a browser automation planner. Given a user instruction, \
+break it down into specific browser actions.
 
 Available actions:
 - navigate: Go to a URL
@@ -191,7 +192,8 @@ User instruction: {instruction}
 
 Respond with a JSON array of actions. Example:
 [
-  {{"action_type": "navigate", "url": "https://example.com", "reasoning": "Go to the target website"}},
+  {{"action_type": "navigate", "url": "https://example.com", \
+"reasoning": "Go to the target website"}},
   {{"action_type": "wait", "selector": "#content", "reasoning": "Wait for content to load"}},
   {{"action_type": "extract", "reasoning": "Extract the contact email from the page"}}
 ]
@@ -203,23 +205,27 @@ Actions:"""
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=1000,
         )
 
         # Parse JSON response
         try:
             actions_data = json.loads(response.content.strip())
             actions = [BrowserAction(**action) for action in actions_data]
-            logger.info(f"Planned {len(actions)} actions")
+            logger.info("Planned %s actions", len(actions))
             return actions
         except json.JSONDecodeError:
             logger.error("Failed to parse LLM response as JSON")
             # Fallback: simple navigate + extract
             return [
-                BrowserAction(action_type="extract", reasoning="Extract data from current page")
+                BrowserAction(
+                    action_type="extract", reasoning="Extract data from current page"
+                )
             ]
 
-    async def _execute_action(self, action: BrowserAction) -> bool:
+    async def _execute_action(  # pylint: disable=too-many-return-statements
+        self, action: BrowserAction
+    ) -> bool:
         """
         Execute a single browser action.
 
@@ -231,34 +237,39 @@ Actions:"""
         """
         try:
             if action.action_type == "navigate":
+                if not action.url:
+                    return False
                 result = await self.browser.navigate(action.url)
                 return result.success
 
-            elif action.action_type == "click":
+            if action.action_type == "click":
+                if not action.selector:
+                    return False
                 return await self.browser.click(action.selector)
 
-            elif action.action_type == "fill":
+            if action.action_type == "fill":
+                if not action.selector or action.value is None:
+                    return False
                 return await self.browser.fill(action.selector, action.value)
 
-            elif action.action_type == "wait":
+            if action.action_type == "wait":
+                if not action.selector:
+                    return False
                 return await self.browser.wait_for_selector(action.selector)
 
-            elif action.action_type == "extract":
+            if action.action_type == "extract":
                 # Data extraction handled in execute_task
                 return True
 
-            else:
-                logger.warning(f"Unknown action type: {action.action_type}")
-                return False
+            logger.warning("Unknown action type: %s", action.action_type)
+            return False
 
-        except Exception as e:
-            logger.error(f"Action execution failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Action execution failed: %s", e)
             return False
 
     async def _extract_data(
-        self,
-        instruction: str,
-        page_content: str
+        self, instruction: str, page_content: str
     ) -> Dict[str, Any]:
         """
         Extract data from page using LLM.
@@ -295,13 +306,13 @@ Extracted data:"""
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=500
+            max_tokens=500,
         )
 
         # Parse JSON response
         try:
             data = json.loads(response.content.strip())
-            logger.info(f"Extracted data: {data}")
+            logger.info("Extracted data: %s", data)
             return data
         except json.JSONDecodeError:
             logger.error("Failed to parse extraction result")
@@ -311,7 +322,7 @@ Extracted data:"""
         self,
         instruction: str,
         extracted_data: Optional[Dict[str, Any]],
-        page_content: str
+        page_content: str,
     ) -> float:
         """
         Validate result using LLM-as-judge (TASK-018).
@@ -329,7 +340,8 @@ Extracted data:"""
         if len(page_content) > max_content_length:
             page_content = page_content[:max_content_length] + "...(truncated)"
 
-        prompt = f"""You are a quality judge for browser automation tasks. Evaluate whether the task was completed successfully.
+        prompt = f"""You are a quality judge for browser automation tasks. \
+Evaluate whether the task was completed successfully.
 
 User instruction: {instruction}
 
@@ -354,7 +366,7 @@ Score:"""
             model="claude-3-5-haiku-20241022",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=10
+            max_tokens=10,
         )
 
         # Parse score
@@ -362,10 +374,10 @@ Score:"""
             score = float(response.content.strip())
             # Normalize to 0-1
             normalized_score = score / 10.0
-            logger.info(f"Validation score: {normalized_score:.2f}")
+            logger.info("Validation score: %.2f", normalized_score)
             return normalized_score
         except ValueError:
-            logger.error(f"Failed to parse validation score: {response.content}")
+            logger.error("Failed to parse validation score: %s", response.content)
             return 0.5  # Neutral score
 
     async def get_page_summary(self) -> str:
@@ -393,7 +405,7 @@ Summary:"""
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=200
+            max_tokens=200,
         )
 
         return response.content.strip()
@@ -405,19 +417,10 @@ Summary:"""
 
 # Example usage
 if __name__ == "__main__":
-    async def main():
-        from src.providers.ollama_provider import OllamaProvider
-        from src.providers.router import ProviderRouter, Tier, ProviderConfig
 
+    async def main():
         # Create provider router
-        router = ProviderRouter()
-        router.register(
-            "ollama",
-            OllamaProvider(),
-            tier=Tier.LOCAL_FREE,
-            models=["llama3.1:8b"],
-            privacy_compatible=True
-        )
+        router = build_local_router()
 
         # Create LLM browser
         browser = LLMBrowser(router, tier=Tier.LOCAL_FREE)
@@ -429,14 +432,18 @@ if __name__ == "__main__":
             result = await browser.execute_task(
                 "Go to example.com and summarize the main heading",
                 max_steps=5,
-                validate=True
+                validate=True,
             )
 
-            print(f"\nTask result:")
+            print("\nTask result:")
             print(f"Success: {result.success}")
             print(f"Steps: {result.steps_completed}")
             print(f"Data: {result.extracted_data}")
-            print(f"Validation: {result.validation_score:.2f}" if result.validation_score else "No validation")
+            print(
+                f"Validation: {result.validation_score:.2f}"
+                if result.validation_score
+                else "No validation"
+            )
 
         finally:
             await browser.close()

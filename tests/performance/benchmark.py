@@ -15,13 +15,13 @@ import statistics
 import json
 import psutil
 from typing import List, Dict, Any, Callable
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass
 
 
 @dataclass
 class BenchmarkResult:
     """Benchmark result metrics"""
+
     name: str
     total_requests: int
     duration: float  # seconds
@@ -79,7 +79,7 @@ class PerformanceBenchmark:
         iterations: int = 100,
         concurrency: int = 1,
         warmup: int = 5,
-        track_cost: bool = False
+        track_cost: bool = False,
     ) -> BenchmarkResult:
         """
         Run benchmark for a function.
@@ -118,7 +118,7 @@ class PerformanceBenchmark:
         cpu_measurements = []
         memory_measurements = []
 
-        print(f"   Benchmarking...")
+        print("   Benchmarking...")
         start_time = time.time()
 
         # Run in batches based on concurrency
@@ -127,7 +127,9 @@ class PerformanceBenchmark:
 
             # Record resource usage before batch
             cpu_measurements.append(self.process.cpu_percent())
-            memory_measurements.append(self.process.memory_info().rss / 1024 / 1024)  # MB
+            memory_measurements.append(
+                self.process.memory_info().rss / 1024 / 1024
+            )  # MB
 
             # Create tasks for concurrent execution
             tasks = []
@@ -179,12 +181,14 @@ class PerformanceBenchmark:
             total_cost=total_cost,
             cost_per_request=total_cost / success_count if success_count > 0 else 0.0,
             cpu_usage=statistics.mean(cpu_measurements) if cpu_measurements else 0.0,
-            memory_usage=statistics.mean(memory_measurements) if memory_measurements else 0.0
+            memory_usage=statistics.mean(memory_measurements)
+            if memory_measurements
+            else 0.0,
         )
 
         self.results.append(result)
 
-        print(f"   ✓ Complete")
+        print("   ✓ Complete")
 
         return result
 
@@ -227,10 +231,10 @@ class PerformanceBenchmark:
         print(f"  📊 Benchmark Report: {result.name}")
         print(f"{'='*70}")
 
-        print(f"\n  Throughput:")
+        print("\n  Throughput:")
         print(f"    {result.throughput:.2f} requests/second")
 
-        print(f"\n  Latency:")
+        print("\n  Latency:")
         print(f"    P50: {result.p50_latency*1000:.2f}ms")
         print(f"    P95: {result.p95_latency*1000:.2f}ms")
         print(f"    P99: {result.p99_latency*1000:.2f}ms")
@@ -238,17 +242,17 @@ class PerformanceBenchmark:
         print(f"    Min: {result.min_latency*1000:.2f}ms")
         print(f"    Max: {result.max_latency*1000:.2f}ms")
 
-        print(f"\n  Reliability:")
+        print("\n  Reliability:")
         print(f"    Success rate: {result.success_rate:.1%}")
         print(f"    Successes: {result.success_count}")
         print(f"    Failures: {result.failure_count}")
 
         if result.total_cost > 0:
-            print(f"\n  Cost:")
+            print("\n  Cost:")
             print(f"    Total: ${result.total_cost:.4f}")
             print(f"    Per request: ${result.cost_per_request:.6f}")
 
-        print(f"\n  Resources:")
+        print("\n  Resources:")
         print(f"    Avg CPU: {result.cpu_usage:.1f}%")
         print(f"    Avg Memory: {result.memory_usage:.1f}MB")
 
@@ -258,11 +262,14 @@ class PerformanceBenchmark:
     def print_comparison(self, results: List[BenchmarkResult]):
         """Print comparison table of multiple benchmarks"""
         print(f"\n{'='*120}")
-        print(f"  📈 Benchmark Comparison")
+        print("  📈 Benchmark Comparison")
         print(f"{'='*120}")
 
         # Header
-        print(f"  {'Benchmark':<40} {'Throughput':>12} {'P95 Latency':>12} {'Success Rate':>12} {'Cost/Req':>12}")
+        print(
+            f"  {'Benchmark':<40} {'Throughput':>12} {'P95 Latency':>12} "
+            f"{'Success Rate':>12} {'Cost/Req':>12}"
+        )
         print(f"  {'-'*40} {'-'*12} {'-'*12} {'-'*12} {'-'*12}")
 
         # Rows
@@ -281,26 +288,28 @@ class PerformanceBenchmark:
         """Export results to JSON"""
         data = []
         for result in self.results:
-            data.append({
-                "name": result.name,
-                "total_requests": result.total_requests,
-                "duration": result.duration,
-                "throughput": result.throughput,
-                "latency": {
-                    "p50": result.p50_latency,
-                    "p95": result.p95_latency,
-                    "p99": result.p99_latency,
-                    "avg": result.avg_latency,
-                    "min": result.min_latency,
-                    "max": result.max_latency
-                },
-                "success_rate": result.success_rate,
-                "cost_per_request": result.cost_per_request,
-                "cpu_usage": result.cpu_usage,
-                "memory_usage": result.memory_usage
-            })
+            data.append(
+                {
+                    "name": result.name,
+                    "total_requests": result.total_requests,
+                    "duration": result.duration,
+                    "throughput": result.throughput,
+                    "latency": {
+                        "p50": result.p50_latency,
+                        "p95": result.p95_latency,
+                        "p99": result.p99_latency,
+                        "avg": result.avg_latency,
+                        "min": result.min_latency,
+                        "max": result.max_latency,
+                    },
+                    "success_rate": result.success_rate,
+                    "cost_per_request": result.cost_per_request,
+                    "cpu_usage": result.cpu_usage,
+                    "memory_usage": result.memory_usage,
+                }
+            )
 
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(data, f, indent=2)
 
         print(f"✓ Exported results to {filepath}")
@@ -308,49 +317,44 @@ class PerformanceBenchmark:
 
 # Example benchmarks
 if __name__ == "__main__":
+
     async def main():
         benchmark = PerformanceBenchmark()
 
         # 1. Benchmark simple computation
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("  SIMPLE COMPUTATION BENCHMARK")
-        print("="*70)
+        print("=" * 70)
 
         async def simple_task():
             await asyncio.sleep(0.01)  # Simulate work
             return sum(range(1000))
 
         result1 = await benchmark.run(
-            name="Simple Computation",
-            func=simple_task,
-            iterations=100,
-            concurrency=10
+            name="Simple Computation", func=simple_task, iterations=100, concurrency=10
         )
 
         benchmark.print_report(result1)
 
         # 2. Benchmark I/O operation
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("  I/O OPERATION BENCHMARK")
-        print("="*70)
+        print("=" * 70)
 
         async def io_task():
             await asyncio.sleep(0.05)  # Simulate I/O
             return {"data": "result"}
 
         result2 = await benchmark.run(
-            name="I/O Operation",
-            func=io_task,
-            iterations=100,
-            concurrency=20
+            name="I/O Operation", func=io_task, iterations=100, concurrency=20
         )
 
         benchmark.print_report(result2)
 
         # 3. Benchmark with cost tracking
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("  COST TRACKING BENCHMARK")
-        print("="*70)
+        print("=" * 70)
 
         async def cost_task():
             await asyncio.sleep(0.02)
@@ -361,7 +365,7 @@ if __name__ == "__main__":
             func=cost_task,
             iterations=100,
             concurrency=10,
-            track_cost=True
+            track_cost=True,
         )
 
         benchmark.print_report(result3)

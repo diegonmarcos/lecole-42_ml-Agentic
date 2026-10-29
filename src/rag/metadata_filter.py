@@ -11,19 +11,19 @@ Provides rich metadata filtering capabilities:
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union
-from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, List, Optional, Union
 
 from qdrant_client import models
-
 
 logger = logging.getLogger(__name__)
 
 
 class FilterOperator(Enum):
     """Filter comparison operators"""
+
     EQUALS = "="
     NOT_EQUALS = "!="
     GREATER_THAN = ">"
@@ -40,6 +40,7 @@ class FilterOperator(Enum):
 
 class LogicalOperator(Enum):
     """Logical operators for combining filters"""
+
     AND = "and"
     OR = "or"
     NOT = "not"
@@ -60,6 +61,7 @@ class MetadataFilter:
         # Numeric range
         MetadataFilter(field="score", operator=FilterOperator.BETWEEN, value=[0.7, 1.0])
     """
+
     field: str
     operator: FilterOperator
     value: Any
@@ -70,72 +72,69 @@ class MetadataFilter:
 
         if self.operator == FilterOperator.EQUALS:
             return models.FieldCondition(
-                key=field_name,
-                match=models.MatchValue(value=self.value)
+                key=field_name, match=models.MatchValue(value=self.value)
             )
 
-        elif self.operator == FilterOperator.NOT_EQUALS:
+        if self.operator == FilterOperator.NOT_EQUALS:
             return models.Filter(
                 must_not=[
                     models.FieldCondition(
-                        key=field_name,
-                        match=models.MatchValue(value=self.value)
+                        key=field_name, match=models.MatchValue(value=self.value)
                     )
                 ]
             )
 
-        elif self.operator == FilterOperator.IN:
+        if self.operator == FilterOperator.IN:
             return models.FieldCondition(
-                key=field_name,
-                match=models.MatchAny(any=self.value)
+                key=field_name, match=models.MatchAny(any=self.value)
             )
 
-        elif self.operator == FilterOperator.NOT_IN:
+        if self.operator == FilterOperator.NOT_IN:
             return models.Filter(
                 must_not=[
                     models.FieldCondition(
-                        key=field_name,
-                        match=models.MatchAny(any=self.value)
+                        key=field_name, match=models.MatchAny(any=self.value)
                     )
                 ]
             )
 
-        elif self.operator in [FilterOperator.GREATER_THAN, FilterOperator.GREATER_THAN_OR_EQUAL]:
+        if self.operator in [
+            FilterOperator.GREATER_THAN,
+            FilterOperator.GREATER_THAN_OR_EQUAL,
+        ]:
             gte = self.operator == FilterOperator.GREATER_THAN_OR_EQUAL
             return models.FieldCondition(
                 key=field_name,
                 range=models.Range(
-                    gte=self.value if gte else None,
-                    gt=self.value if not gte else None
-                )
+                    gte=self.value if gte else None, gt=self.value if not gte else None
+                ),
             )
 
-        elif self.operator in [FilterOperator.LESS_THAN, FilterOperator.LESS_THAN_OR_EQUAL]:
+        if self.operator in [
+            FilterOperator.LESS_THAN,
+            FilterOperator.LESS_THAN_OR_EQUAL,
+        ]:
             lte = self.operator == FilterOperator.LESS_THAN_OR_EQUAL
             return models.FieldCondition(
                 key=field_name,
                 range=models.Range(
-                    lte=self.value if lte else None,
-                    lt=self.value if not lte else None
-                )
+                    lte=self.value if lte else None, lt=self.value if not lte else None
+                ),
             )
 
-        elif self.operator == FilterOperator.BETWEEN:
+        if self.operator == FilterOperator.BETWEEN:
             min_val, max_val = self.value
             return models.FieldCondition(
-                key=field_name,
-                range=models.Range(gte=min_val, lte=max_val)
+                key=field_name, range=models.Range(gte=min_val, lte=max_val)
             )
 
-        elif self.operator == FilterOperator.CONTAINS:
+        if self.operator == FilterOperator.CONTAINS:
             # Full-text search on field
             return models.FieldCondition(
-                key=field_name,
-                match=models.MatchText(text=self.value)
+                key=field_name, match=models.MatchText(text=self.value)
             )
 
-        else:
-            raise ValueError(f"Unsupported operator: {self.operator}")
+        raise ValueError(f"Unsupported operator: {self.operator}")
 
 
 @dataclass
@@ -174,6 +173,7 @@ class CompositeFilter:
             ]
         )
     """
+
     operator: LogicalOperator
     filters: List[Union[MetadataFilter, "CompositeFilter"]]
 
@@ -191,10 +191,10 @@ class CompositeFilter:
 
         if self.operator == LogicalOperator.AND:
             return models.Filter(must=conditions)
-        elif self.operator == LogicalOperator.OR:
+        if self.operator == LogicalOperator.OR:
             # OR in Qdrant is represented with should
             return models.Filter(should=conditions)
-        elif self.operator == LogicalOperator.NOT:
+        if self.operator == LogicalOperator.NOT:
             return models.Filter(must_not=conditions)
 
         raise ValueError(f"Unsupported operator: {self.operator}")
@@ -222,7 +222,7 @@ class TemporalFilter:
         return MetadataFilter(
             field=field,
             operator=FilterOperator.GREATER_THAN_OR_EQUAL,
-            value=cutoff.isoformat()
+            value=cutoff.isoformat(),
         )
 
     @staticmethod
@@ -232,7 +232,7 @@ class TemporalFilter:
         return MetadataFilter(
             field=field,
             operator=FilterOperator.GREATER_THAN_OR_EQUAL,
-            value=cutoff.isoformat()
+            value=cutoff.isoformat(),
         )
 
     @staticmethod
@@ -243,7 +243,7 @@ class TemporalFilter:
         return MetadataFilter(
             field=field,
             operator=FilterOperator.GREATER_THAN_OR_EQUAL,
-            value=start_of_month.isoformat()
+            value=start_of_month.isoformat(),
         )
 
     @staticmethod
@@ -254,34 +254,28 @@ class TemporalFilter:
         return MetadataFilter(
             field=field,
             operator=FilterOperator.GREATER_THAN_OR_EQUAL,
-            value=start_of_year.isoformat()
+            value=start_of_year.isoformat(),
         )
 
     @staticmethod
     def date_range(field: str, start_date: str, end_date: str) -> MetadataFilter:
         """Documents in date range"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.BETWEEN,
-            value=[start_date, end_date]
+            field=field, operator=FilterOperator.BETWEEN, value=[start_date, end_date]
         )
 
     @staticmethod
     def before_date(field: str, date: str) -> MetadataFilter:
         """Documents before date"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.LESS_THAN,
-            value=date
+            field=field, operator=FilterOperator.LESS_THAN, value=date
         )
 
     @staticmethod
     def after_date(field: str, date: str) -> MetadataFilter:
         """Documents after date"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.GREATER_THAN,
-            value=date
+            field=field, operator=FilterOperator.GREATER_THAN, value=date
         )
 
 
@@ -307,36 +301,23 @@ class CategoryFilter:
     def by_category(category: str, field: str = "category") -> MetadataFilter:
         """Filter by single category"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.EQUALS,
-            value=category
+            field=field, operator=FilterOperator.EQUALS, value=category
         )
 
     @staticmethod
-    def by_categories(
-        categories: List[str],
-        field: str = "category"
-    ) -> MetadataFilter:
+    def by_categories(categories: List[str], field: str = "category") -> MetadataFilter:
         """Filter by multiple categories (OR)"""
-        return MetadataFilter(
-            field=field,
-            operator=FilterOperator.IN,
-            value=categories
-        )
+        return MetadataFilter(field=field, operator=FilterOperator.IN, value=categories)
 
     @staticmethod
     def by_author(author: str, field: str = "author") -> MetadataFilter:
         """Filter by author"""
-        return MetadataFilter(
-            field=field,
-            operator=FilterOperator.EQUALS,
-            value=author
-        )
+        return MetadataFilter(field=field, operator=FilterOperator.EQUALS, value=author)
 
     @staticmethod
     def has_tags(tags: List[str], field: str = "tags") -> CompositeFilter:
         """Filter by tags (must have all tags)"""
-        filters = [
+        filters: List[Union[MetadataFilter, CompositeFilter]] = [
             MetadataFilter(field=field, operator=FilterOperator.CONTAINS, value=tag)
             for tag in tags
         ]
@@ -345,20 +326,12 @@ class CategoryFilter:
     @staticmethod
     def has_any_tag(tags: List[str], field: str = "tags") -> MetadataFilter:
         """Filter by tags (has at least one tag)"""
-        return MetadataFilter(
-            field=field,
-            operator=FilterOperator.IN,
-            value=tags
-        )
+        return MetadataFilter(field=field, operator=FilterOperator.IN, value=tags)
 
     @staticmethod
     def by_source(source: str, field: str = "source") -> MetadataFilter:
         """Filter by source"""
-        return MetadataFilter(
-            field=field,
-            operator=FilterOperator.EQUALS,
-            value=source
-        )
+        return MetadataFilter(field=field, operator=FilterOperator.EQUALS, value=source)
 
 
 class NumericFilter:
@@ -380,37 +353,27 @@ class NumericFilter:
     def above_threshold(field: str, threshold: float) -> MetadataFilter:
         """Values above threshold"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.GREATER_THAN_OR_EQUAL,
-            value=threshold
+            field=field, operator=FilterOperator.GREATER_THAN_OR_EQUAL, value=threshold
         )
 
     @staticmethod
     def below_threshold(field: str, threshold: float) -> MetadataFilter:
         """Values below threshold"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.LESS_THAN_OR_EQUAL,
-            value=threshold
+            field=field, operator=FilterOperator.LESS_THAN_OR_EQUAL, value=threshold
         )
 
     @staticmethod
     def in_range(field: str, min_val: float, max_val: float) -> MetadataFilter:
         """Values in range"""
         return MetadataFilter(
-            field=field,
-            operator=FilterOperator.BETWEEN,
-            value=[min_val, max_val]
+            field=field, operator=FilterOperator.BETWEEN, value=[min_val, max_val]
         )
 
     @staticmethod
     def equals(field: str, value: float) -> MetadataFilter:
         """Exact value"""
-        return MetadataFilter(
-            field=field,
-            operator=FilterOperator.EQUALS,
-            value=value
-        )
+        return MetadataFilter(field=field, operator=FilterOperator.EQUALS, value=value)
 
 
 class HierarchicalFilter:
@@ -428,20 +391,12 @@ class HierarchicalFilter:
     @staticmethod
     def by_path(path: str, value: Any) -> MetadataFilter:
         """Filter by nested path"""
-        return MetadataFilter(
-            field=path,
-            operator=FilterOperator.EQUALS,
-            value=value
-        )
+        return MetadataFilter(field=path, operator=FilterOperator.EQUALS, value=value)
 
     @staticmethod
     def path_contains(path: str, value: Any) -> MetadataFilter:
         """Nested path contains value"""
-        return MetadataFilter(
-            field=path,
-            operator=FilterOperator.CONTAINS,
-            value=value
-        )
+        return MetadataFilter(field=path, operator=FilterOperator.CONTAINS, value=value)
 
 
 class FilterBuilder:
@@ -460,9 +415,11 @@ class FilterBuilder:
     def __init__(self):
         self.filters: List[Union[MetadataFilter, CompositeFilter]] = []
 
-    def add_filter(self, filter: Union[MetadataFilter, CompositeFilter]) -> "FilterBuilder":
+    def add_filter(
+        self, new_filter: Union[MetadataFilter, CompositeFilter]
+    ) -> "FilterBuilder":
         """Add custom filter"""
-        self.filters.append(filter)
+        self.filters.append(new_filter)
         return self
 
     def add_category(self, category: str, field: str = "category") -> "FilterBuilder":
@@ -470,7 +427,9 @@ class FilterBuilder:
         self.filters.append(CategoryFilter.by_category(category, field))
         return self
 
-    def add_categories(self, categories: List[str], field: str = "category") -> "FilterBuilder":
+    def add_categories(
+        self, categories: List[str], field: str = "category"
+    ) -> "FilterBuilder":
         """Add multiple category filter"""
         self.filters.append(CategoryFilter.by_categories(categories, field))
         return self
@@ -480,7 +439,9 @@ class FilterBuilder:
         self.filters.append(CategoryFilter.by_author(author, field))
         return self
 
-    def add_tags(self, tags: List[str], match_all: bool = True, field: str = "tags") -> "FilterBuilder":
+    def add_tags(
+        self, tags: List[str], match_all: bool = True, field: str = "tags"
+    ) -> "FilterBuilder":
         """Add tags filter"""
         if match_all:
             self.filters.append(CategoryFilter.has_tags(tags, field))
@@ -488,7 +449,9 @@ class FilterBuilder:
             self.filters.append(CategoryFilter.has_any_tag(tags, field))
         return self
 
-    def add_date_range(self, field: str, start_date: str, end_date: str) -> "FilterBuilder":
+    def add_date_range(
+        self, field: str, start_date: str, end_date: str
+    ) -> "FilterBuilder":
         """Add date range filter"""
         self.filters.append(TemporalFilter.date_range(field, start_date, end_date))
         return self
@@ -503,7 +466,9 @@ class FilterBuilder:
         self.filters.append(NumericFilter.above_threshold(field, threshold))
         return self
 
-    def add_score_range(self, field: str, min_val: float, max_val: float) -> "FilterBuilder":
+    def add_score_range(
+        self, field: str, min_val: float, max_val: float
+    ) -> "FilterBuilder":
         """Add score range filter"""
         self.filters.append(NumericFilter.in_range(field, min_val, max_val))
         return self
@@ -513,7 +478,9 @@ class FilterBuilder:
         self.filters.append(HierarchicalFilter.by_path(path, value))
         return self
 
-    def build(self, operator: LogicalOperator = LogicalOperator.AND) -> Optional[models.Filter]:
+    def build(
+        self, operator: LogicalOperator = LogicalOperator.AND
+    ) -> Optional[models.Filter]:
         """Build final Qdrant filter"""
         if not self.filters:
             return None
@@ -522,8 +489,7 @@ class FilterBuilder:
             f = self.filters[0]
             if isinstance(f, MetadataFilter):
                 return models.Filter(must=[f.to_qdrant_condition()])
-            else:
-                return f.to_qdrant_filter()
+            return f.to_qdrant_filter()
 
         # Multiple filters
         composite = CompositeFilter(operator=operator, filters=self.filters)
@@ -531,7 +497,8 @@ class FilterBuilder:
 
 
 # Example usage
-if __name__ == "__main__":
+def _demo() -> None:
+    """Run a small demonstration of this module."""
     # Example 1: Simple category filter
     filter1 = CategoryFilter.by_category("tech")
     print("Simple filter:", filter1.to_qdrant_condition())
@@ -546,13 +513,14 @@ if __name__ == "__main__":
         filters=[
             CategoryFilter.by_category("tech"),
             TemporalFilter.last_n_days("created_at", 7),
-            NumericFilter.above_threshold("score", 0.8)
-        ]
+            NumericFilter.above_threshold("score", 0.8),
+        ],
     )
     print("Composite filter:", composite.to_qdrant_filter())
 
     # Example 4: Fluent builder
-    filter4 = (FilterBuilder()
+    filter4 = (
+        FilterBuilder()
         .add_category("tech")
         .add_last_n_days("created_at", 7)
         .add_score_above("relevance", 0.8)
@@ -570,10 +538,14 @@ if __name__ == "__main__":
                 operator=LogicalOperator.OR,
                 filters=[
                     CategoryFilter.by_category("tech"),
-                    CategoryFilter.by_category("science")
-                ]
+                    CategoryFilter.by_category("science"),
+                ],
             ),
-            NumericFilter.above_threshold("score", 0.8)
-        ]
+            NumericFilter.above_threshold("score", 0.8),
+        ],
     )
     print("Nested filter:", nested.to_qdrant_filter())
+
+
+if __name__ == "__main__":
+    _demo()

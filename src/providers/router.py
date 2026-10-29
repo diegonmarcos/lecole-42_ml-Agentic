@@ -13,26 +13,32 @@ Features:
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Callable, AsyncIterator
+from dataclasses import dataclass
 from enum import IntEnum
-from dataclasses import dataclass, field
+from typing import AsyncIterator, Callable, Dict, List, Optional
+
+from .anthropic_provider import AnthropicProvider
 from .base import LLMProvider, LLMResponse
+from .fireworks_provider import FireworksProvider
+from .ollama_provider import OllamaProvider
 
 logger = logging.getLogger(__name__)
 
 
 class Tier(IntEnum):
     """LLM tier classification"""
-    LOCAL_FREE = 0      # Ollama, Jan (free)
-    CLOUD_CHEAP = 1     # Fireworks, Together ($0.18-0.90/M)
-    VISION = 2          # Ollama vision models (free, GPU required)
-    PREMIUM = 3         # Anthropic, OpenAI ($1-75/M)
-    BATCH = 4           # RunPod, Salad (batch processing)
+
+    LOCAL_FREE = 0  # Ollama, Jan (free)
+    CLOUD_CHEAP = 1  # Fireworks, Together ($0.18-0.90/M)
+    VISION = 2  # Ollama vision models (free, GPU required)
+    PREMIUM = 3  # Anthropic, OpenAI ($1-75/M)
+    BATCH = 4  # RunPod, Salad (batch processing)
 
 
 @dataclass
 class ProviderConfig:
     """Configuration for a provider"""
+
     provider: LLMProvider
     tier: Tier
     priority: int  # Lower = higher priority within tier
@@ -46,6 +52,7 @@ class ProviderConfig:
 @dataclass
 class CircuitBreakerState:
     """Circuit breaker state for a provider"""
+
     failure_count: int = 0
     last_failure_time: float = 0
     is_open: bool = False
@@ -60,7 +67,9 @@ class ProviderRouter:
     Usage:
         router = ProviderRouter()
         router.register(ollama_provider, tier=Tier.LOCAL_FREE, models=["llama-3.1-8b"])
-        router.register(fireworks_provider, tier=Tier.CLOUD_CHEAP, models=["llama-v3p1-8b-instruct"])
+        router.register(
+            fireworks_provider, tier=Tier.CLOUD_CHEAP, models=["llama-v3p1-8b-instruct"]
+        )
 
         response = await router.chat_completion(
             tier=Tier.LOCAL_FREE,
@@ -88,7 +97,7 @@ class ProviderRouter:
         tier: Tier,
         models: List[str],
         priority: int = 0,
-        privacy_compatible: bool = False
+        privacy_compatible: bool = False,
     ):
         """
         Register a provider with the router.
@@ -106,19 +115,18 @@ class ProviderRouter:
             tier=tier,
             priority=priority,
             models=models,
-            privacy_compatible=privacy_compatible
+            privacy_compatible=privacy_compatible,
         )
 
         self.providers[name] = config
         self.circuit_breakers[name] = CircuitBreakerState()
 
-        logger.info(f"Registered provider: {name} (Tier {tier}, {len(models)} models)")
+        logger.info(
+            "Registered provider: %s (Tier %s, %s models)", name, tier, len(models)
+        )
 
     def _get_candidates(
-        self,
-        tier: Tier,
-        model: Optional[str] = None,
-        privacy_mode: bool = False
+        self, tier: Tier, model: Optional[str] = None, privacy_mode: bool = False
     ) -> List[str]:
         """
         Get candidate providers for a tier and model.
@@ -150,12 +158,15 @@ class ProviderRouter:
             breaker = self.circuit_breakers[name]
             if breaker.is_open:
                 # Check if timeout expired
-                if time.time() - breaker.last_failure_time >= config.circuit_breaker_timeout:
+                if (
+                    time.time() - breaker.last_failure_time
+                    >= config.circuit_breaker_timeout
+                ):
                     breaker.is_open = False
                     breaker.failure_count = 0
-                    logger.info(f"Circuit breaker closed for {name}")
+                    logger.info("Circuit breaker closed for %s", name)
                 else:
-                    logger.debug(f"Skipping {name} (circuit breaker open)")
+                    logger.debug("Skipping %s (circuit breaker open)", name)
                     continue
 
             candidates.append((name, config.priority))
@@ -184,25 +195,24 @@ class ProviderRouter:
         # Perform health check
         try:
             is_healthy = await asyncio.wait_for(
-                config.provider.health_check(),
-                timeout=10.0
+                config.provider.health_check(), timeout=10.0
             )
 
             breaker.is_healthy = is_healthy
             breaker.last_health_check = time.time()
 
             if not is_healthy:
-                logger.warning(f"Health check failed for {name}")
+                logger.warning("Health check failed for %s", name)
 
             return is_healthy
 
         except asyncio.TimeoutError:
-            logger.warning(f"Health check timeout for {name}")
+            logger.warning("Health check timeout for %s", name)
             breaker.is_healthy = False
             return False
 
-        except Exception as e:
-            logger.error(f"Health check error for {name}: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Health check error for %s: %s", name, e)
             breaker.is_healthy = False
             return False
 
@@ -223,8 +233,9 @@ class ProviderRouter:
             if breaker.failure_count >= config.circuit_breaker_threshold:
                 breaker.is_open = True
                 logger.warning(
-                    f"Circuit breaker opened for {name} "
-                    f"({breaker.failure_count} failures)"
+                    "Circuit breaker opened for %s (%s failures)",
+                    name,
+                    breaker.failure_count,
                 )
 
     async def _record_success(self, name: str):
@@ -241,11 +252,11 @@ class ProviderRouter:
     async def chat_completion(
         self,
         tier: Tier,
-        model: str,
+        model: Optional[str],
         messages: List[Dict[str, str]],
         privacy_mode: bool = False,
         enable_failover: bool = True,
-        **kwargs
+        **kwargs,
     ) -> LLMResponse:
         """
         Generate chat completion with automatic failover.
@@ -281,7 +292,7 @@ class ProviderRouter:
             candidates = self._get_candidates(current_tier, model, privacy_mode)
 
             if not candidates:
-                logger.warning(f"No candidates for tier {current_tier}")
+                logger.warning("No candidates for tier %s", current_tier)
                 continue
 
             for name in candidates:
@@ -289,17 +300,18 @@ class ProviderRouter:
 
                 # Health check
                 if not await self._check_health(name):
-                    logger.warning(f"Skipping unhealthy provider: {name}")
+                    logger.warning("Skipping unhealthy provider: %s", name)
                     continue
 
                 # Attempt completion
                 try:
-                    logger.debug(f"Trying provider: {name} (tier {current_tier})")
+                    logger.debug("Trying provider: %s (tier %s)", name, current_tier)
 
+                    resolved_model = model or (
+                        config.models[0] if config.models else ""
+                    )
                     response = await config.provider.chat_completion(
-                        model=model,
-                        messages=messages,
-                        **kwargs
+                        model=resolved_model, messages=messages, **kwargs
                     )
 
                     # Success!
@@ -311,24 +323,24 @@ class ProviderRouter:
 
                     return response
 
-                except Exception as e:
-                    logger.error(f"Provider {name} failed: {e}")
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    logger.error("Provider %s failed: %s", name, e)
                     await self._record_failure(name)
                     last_error = e
                     continue
 
         # All providers failed
-        raise Exception(
+        raise RuntimeError(
             f"All providers failed for tier {tier}. Last error: {last_error}"
         )
 
     async def stream_completion(
         self,
         tier: Tier,
-        model: str,
+        model: Optional[str],
         messages: List[Dict[str, str]],
         privacy_mode: bool = False,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[str]:
         """
         Stream completion with automatic failover.
@@ -357,10 +369,9 @@ class ProviderRouter:
 
             # Attempt streaming
             try:
+                resolved_model = model or (config.models[0] if config.models else "")
                 async for chunk in config.provider.stream_completion(
-                    model=model,
-                    messages=messages,
-                    **kwargs
+                    model=resolved_model, messages=messages, **kwargs
                 ):
                     yield chunk
 
@@ -368,12 +379,12 @@ class ProviderRouter:
                 await self._record_success(name)
                 return
 
-            except Exception as e:
-                logger.error(f"Provider {name} streaming failed: {e}")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Provider %s streaming failed: %s", name, e)
                 await self._record_failure(name)
                 continue
 
-        raise Exception(f"All providers failed for streaming on tier {tier}")
+        raise RuntimeError(f"All providers failed for streaming on tier {tier}")
 
     def get_provider_status(self) -> Dict[str, Dict]:
         """
@@ -394,19 +405,29 @@ class ProviderRouter:
                 "is_healthy": breaker.is_healthy,
                 "circuit_breaker_open": breaker.is_open,
                 "failure_count": breaker.failure_count,
-                "last_health_check": breaker.last_health_check
+                "last_health_check": breaker.last_health_check,
             }
 
         return status
 
 
+def build_local_router() -> ProviderRouter:
+    """Build a router with a single local Ollama provider (used by demos)."""
+    router = ProviderRouter()
+    router.register(
+        "ollama",
+        OllamaProvider(),
+        tier=Tier.LOCAL_FREE,
+        models=["llama3.1:8b"],
+        privacy_compatible=True,
+    )
+    return router
+
+
 # Example usage
 if __name__ == "__main__":
-    async def main():
-        from .ollama_provider import OllamaProvider
-        from .fireworks_provider import FireworksProvider
-        from .anthropic_provider import AnthropicProvider
 
+    async def main():
         # Create router
         router = ProviderRouter(
             on_failover=lambda old, new, name, err: print(
@@ -421,7 +442,7 @@ if __name__ == "__main__":
             tier=Tier.LOCAL_FREE,
             models=["llama3.1:8b", "mistral:7b"],
             privacy_compatible=True,
-            priority=0
+            priority=0,
         )
 
         router.register(
@@ -429,7 +450,7 @@ if __name__ == "__main__":
             FireworksProvider(),
             tier=Tier.CLOUD_CHEAP,
             models=["accounts/fireworks/models/llama-v3p1-8b-instruct"],
-            priority=0
+            priority=0,
         )
 
         router.register(
@@ -437,7 +458,7 @@ if __name__ == "__main__":
             AnthropicProvider(),
             tier=Tier.PREMIUM,
             models=["claude-3-5-sonnet-20241022"],
-            priority=0
+            priority=0,
         )
 
         # Test completion with failover
@@ -448,13 +469,13 @@ if __name__ == "__main__":
                 messages=[
                     {"role": "user", "content": "What is the capital of France?"}
                 ],
-                enable_failover=True
+                enable_failover=True,
             )
 
             print(f"Response: {response.content}")
             print(f"Model: {response.model}")
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"Error: {e}")
 
         # Check provider status

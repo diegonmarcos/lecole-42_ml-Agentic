@@ -7,11 +7,11 @@ Accesses code workbench tools.
 
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict
 
-from .base_agent import BaseAgent
 from src.providers.router import Tier
 
+from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class CoderAgent(BaseAgent):
         if not instruction:
             return {"error": "No instruction provided"}
 
-        logger.info(f"Coding task: {instruction}")
+        logger.info("Coding task: %s", instruction)
 
         # Build prompt
         code_prompt = f"""Generate code for the following task:
@@ -76,7 +76,7 @@ Response:"""
         response = await self.call_llm(
             messages=[{"role": "user", "content": code_prompt}],
             temperature=0.2,
-            max_tokens=2000
+            max_tokens=2000,
         )
 
         # Parse response
@@ -86,20 +86,17 @@ Response:"""
             # Validate syntax if code is Python
             if "code" in result:
                 syntax_check = await self.use_tool(
-                    "check_syntax",
-                    {"code": result["code"]}
+                    "check_syntax", {"code": result["code"]}
                 )
 
-                result["syntax_valid"] = syntax_check.get("valid", False) if syntax_check else False
+                result["syntax_valid"] = (
+                    syntax_check.get("valid", False) if syntax_check else False
+                )
 
             # Remember generated code
             self.remember("last_code", result.get("code"))
 
-            return {
-                "status": "success",
-                "result": result,
-                "coder": self.agent_id
-            }
+            return {"status": "success", "result": result, "coder": self.agent_id}
 
         except json.JSONDecodeError:
             logger.warning("Non-JSON response, returning raw code")
@@ -109,9 +106,9 @@ Response:"""
                 "status": "success",
                 "result": {
                     "code": response,
-                    "explanation": "Generated code (raw format)"
+                    "explanation": "Generated code (raw format)",
                 },
-                "coder": self.agent_id
+                "coder": self.agent_id,
             }
 
     def get_system_prompt(self) -> str:

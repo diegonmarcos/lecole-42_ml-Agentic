@@ -7,11 +7,15 @@ Premium models for complex reasoning:
 - claude-3-opus-20240229 ($15/M input, $75/M output)
 """
 
-import aiohttp
 import asyncio
+import json
 import os
-from typing import List, Dict, Optional, AsyncIterator
+from typing import AsyncIterator, Dict, List, Optional
+
+import aiohttp
+
 from .base import LLMProvider, LLMResponse
+from .demo import run_provider_demo
 
 
 class AnthropicProvider(LLMProvider):
@@ -34,7 +38,11 @@ class AnthropicProvider(LLMProvider):
         "claude-3-haiku-20240307": (0.25, 1.25),
     }
 
-    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://api.anthropic.com/v1"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://api.anthropic.com/v1",
+    ):
         """
         Initialize Anthropic provider.
 
@@ -42,12 +50,15 @@ class AnthropicProvider(LLMProvider):
             api_key: Anthropic API key (or set ANTHROPIC_API_KEY env var)
             base_url: API base URL (default: production endpoint)
         """
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("Anthropic API key required (set ANTHROPIC_API_KEY env var)")
+        resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "Anthropic API key required (set ANTHROPIC_API_KEY env var)"
+            )
+        self.api_key: str = resolved_key
 
         self.base_url = base_url.rstrip("/")
-        self._session = None
+        self._session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
@@ -56,12 +67,14 @@ class AnthropicProvider(LLMProvider):
                 headers={
                     "x-api-key": self.api_key,
                     "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
                 }
             )
         return self._session
 
-    def _convert_messages(self, messages: List[Dict[str, str]]) -> tuple[Optional[str], List[Dict[str, str]]]:
+    def _convert_messages(
+        self, messages: List[Dict[str, str]]
+    ) -> tuple[Optional[str], List[Dict[str, str]]]:
         """
         Convert OpenAI-style messages to Anthropic format.
 
@@ -82,10 +95,7 @@ class AnthropicProvider(LLMProvider):
                 system_prompt = msg["content"]
             else:
                 # Keep user/assistant messages
-                user_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
+                user_messages.append({"role": msg["role"], "content": msg["content"]})
 
         return system_prompt, user_messages
 
@@ -96,7 +106,7 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
-        **kwargs
+        **kwargs,
     ) -> LLMResponse:
         """
         Generate chat completion using Anthropic API.
@@ -129,23 +139,22 @@ class AnthropicProvider(LLMProvider):
             "messages": user_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            **kwargs
+            **kwargs,
         }
 
         if system_prompt:
             payload["system"] = system_prompt
 
-        async with session.post(
-            f"{self.base_url}/messages",
-            json=payload
-        ) as resp:
+        async with session.post(f"{self.base_url}/messages", json=payload) as resp:
             resp.raise_for_status()
             data = await resp.json()
 
         # Extract content (Anthropic returns array of content blocks)
         content_blocks = data.get("content", [])
         content = "".join(
-            block.get("text", "") for block in content_blocks if block.get("type") == "text"
+            block.get("text", "")
+            for block in content_blocks
+            if block.get("type") == "text"
         )
 
         usage = data.get("usage", {})
@@ -154,17 +163,14 @@ class AnthropicProvider(LLMProvider):
             content=content,
             usage={
                 "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0)
+                "completion_tokens": usage.get("output_tokens", 0),
             },
             model=data.get("model", model),
-            finish_reason=data.get("stop_reason", "end_turn")
+            finish_reason=data.get("stop_reason", "end_turn"),
         )
 
     async def stream_completion(
-        self,
-        model: str,
-        messages: List[Dict[str, str]],
-        **kwargs
+        self, model: str, messages: List[Dict[str, str]], **kwargs
     ) -> AsyncIterator[str]:
         """
         Stream completion chunks from Anthropic API.
@@ -190,20 +196,17 @@ class AnthropicProvider(LLMProvider):
             "messages": user_messages,
             "max_tokens": max_tokens,
             "stream": True,
-            **kwargs
+            **kwargs,
         }
 
         if system_prompt:
             payload["system"] = system_prompt
 
-        async with session.post(
-            f"{self.base_url}/messages",
-            json=payload
-        ) as resp:
+        async with session.post(f"{self.base_url}/messages", json=payload) as resp:
             resp.raise_for_status()
 
-            async for line in resp.content:
-                line = line.decode("utf-8").strip()
+            async for raw_line in resp.content:
+                line = raw_line.decode("utf-8").strip()
 
                 if not line or not line.startswith("data: "):
                     continue
@@ -211,8 +214,6 @@ class AnthropicProvider(LLMProvider):
                 # Skip pings and non-data events
                 if line == "data: [DONE]":
                     continue
-
-                import json
                 try:
                     data = json.loads(line[6:])
 
@@ -243,16 +244,18 @@ class AnthropicProvider(LLMProvider):
                 json={
                     "model": "claude-3-5-haiku-20241022",  # Cheapest model
                     "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1
+                    "max_tokens": 1,
                 },
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 return resp.status == 200
 
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             return False
 
-    def get_cost(self, input_tokens: int, output_tokens: int, model: str = None) -> float:
+    def get_cost(
+        self, input_tokens: int, output_tokens: int, model: Optional[str] = None
+    ) -> float:
         """
         Calculate cost in USD for token usage.
 
@@ -269,13 +272,13 @@ class AnthropicProvider(LLMProvider):
 
         # Get pricing or use default
         input_price, output_price = self.PRICING.get(
-            model,
-            (3.00, 15.00)  # Default to Sonnet pricing
+            model, (3.00, 15.00)  # Default to Sonnet pricing
         )
 
         # Prices are per 1M tokens
-        cost = (input_tokens * input_price / 1_000_000) + \
-               (output_tokens * output_price / 1_000_000)
+        cost = (input_tokens * input_price / 1_000_000) + (
+            output_tokens * output_price / 1_000_000
+        )
 
         return cost
 
@@ -287,45 +290,11 @@ class AnthropicProvider(LLMProvider):
 
 # Example usage
 if __name__ == "__main__":
-    async def main():
-        provider = AnthropicProvider()
-
-        # Health check
-        is_healthy = await provider.health_check()
-        print(f"Anthropic health: {is_healthy}")
-
-        # Chat completion
-        response = await provider.chat_completion(
-            model="claude-3-5-sonnet-20241022",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "What is the capital of France?"}
-            ],
-            temperature=0.7,
-            max_tokens=100
+    asyncio.run(
+        run_provider_demo(
+            AnthropicProvider(),
+            "Anthropic",
+            "claude-3-5-sonnet-20241022",
+            stream_model="claude-3-5-haiku-20241022",
         )
-
-        print(f"Response: {response.content}")
-        print(f"Usage: {response.usage}")
-
-        # Calculate cost
-        cost = provider.get_cost(
-            response.usage["prompt_tokens"],
-            response.usage["completion_tokens"],
-            model=response.model
-        )
-        print(f"Cost: ${cost:.6f}")
-
-        # Streaming
-        print("\nStreaming:")
-        async for chunk in provider.stream_completion(
-            model="claude-3-5-haiku-20241022",
-            messages=[{"role": "user", "content": "Count from 1 to 5."}],
-            max_tokens=50
-        ):
-            print(chunk, end="", flush=True)
-        print()
-
-        await provider.close()
-
-    asyncio.run(main())
+    )

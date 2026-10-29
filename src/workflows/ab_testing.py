@@ -11,26 +11,24 @@ Provides A/B testing capabilities for workflow variants:
 
 import asyncio
 import hashlib
+import json
 import logging
 import random
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
-try:
-    import redis.asyncio as redis
-except ImportError:
-    import redis
+import redis.asyncio as redis
 
-from .versioning import WorkflowVersionManager, WorkflowVersion
-
+from .versioning import WorkflowVersionManager
 
 logger = logging.getLogger(__name__)
 
 
 class ExperimentStatus(Enum):
     """A/B test experiment status"""
+
     DRAFT = "draft"
     RUNNING = "running"
     PAUSED = "paused"
@@ -41,6 +39,7 @@ class ExperimentStatus(Enum):
 @dataclass
 class Variant:
     """A/B test variant"""
+
     variant_id: str
     workflow_version: str
     traffic_weight: float  # 0.0 - 1.0
@@ -51,6 +50,7 @@ class Variant:
 @dataclass
 class ExperimentMetrics:
     """Metrics for a variant"""
+
     variant_id: str
     impressions: int  # Number of times assigned
     successes: int  # Number of successful executions
@@ -70,8 +70,9 @@ class ExperimentMetrics:
 
 
 @dataclass
-class ABExperiment:
+class ABExperiment:  # pylint: disable=too-many-instance-attributes
     """A/B test experiment"""
+
     experiment_id: str
     workflow_id: str
     name: str
@@ -109,8 +110,7 @@ class ABExperiment:
 
         # Convert variant dicts to Variant objects
         data["variants"] = [
-            Variant(**v) if isinstance(v, dict) else v
-            for v in data["variants"]
+            Variant(**v) if isinstance(v, dict) else v for v in data["variants"]
         ]
 
         return cls(**data)
@@ -119,6 +119,7 @@ class ABExperiment:
 @dataclass
 class StatisticalTest:
     """Statistical significance test results"""
+
     variant_a_id: str
     variant_b_id: str
     significant: bool
@@ -152,7 +153,9 @@ class ABTestingManager:
 
         # Record metrics
         await manager.record_impression(experiment.experiment_id, variant.variant_id)
-        await manager.record_success(experiment.experiment_id, variant.variant_id, latency=1.2, cost=0.05)
+        await manager.record_success(
+            experiment.experiment_id, variant.variant_id, latency=1.2, cost=0.05
+        )
 
         # Check for winner
         winner = await manager.check_winner(experiment.experiment_id)
@@ -162,9 +165,7 @@ class ABTestingManager:
     """
 
     def __init__(
-        self,
-        redis_client: redis.Redis,
-        version_manager: WorkflowVersionManager
+        self, redis_client: redis.Redis, version_manager: WorkflowVersionManager
     ):
         """
         Initialize A/B testing manager.
@@ -200,7 +201,7 @@ class ABTestingManager:
         variants: List[Variant],
         min_sample_size: int = 100,
         confidence_level: float = 0.95,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> ABExperiment:
         """
         Create A/B test experiment.
@@ -222,17 +223,18 @@ class ABTestingManager:
             raise ValueError("At least 2 variants required")
 
         total_weight = sum(v.traffic_weight for v in variants)
-        if not (0.99 <= total_weight <= 1.01):  # Allow small float error
+        if not 0.99 <= total_weight <= 1.01:  # Allow small float error
             raise ValueError(f"Traffic weights must sum to 1.0, got {total_weight}")
 
         # Verify workflow versions exist
         for variant in variants:
             version = await self.version_manager.get_version(
-                workflow_id,
-                variant.workflow_version
+                workflow_id, variant.workflow_version
             )
             if not version:
-                raise ValueError(f"Workflow version not found: {variant.workflow_version}")
+                raise ValueError(
+                    f"Workflow version not found: {variant.workflow_version}"
+                )
 
         # Generate experiment ID
         experiment_id = hashlib.sha256(
@@ -250,7 +252,7 @@ class ABTestingManager:
             created_at=datetime.utcnow(),
             min_sample_size=min_sample_size,
             confidence_level=confidence_level,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         # Store in Redis
@@ -258,7 +260,7 @@ class ABTestingManager:
         await self.redis.set(
             experiment_key,
             self._serialize_experiment(experiment),
-            ex=86400 * 90  # 90 days
+            ex=86400 * 90,  # 90 days
         )
 
         # Add to workflow experiments list
@@ -273,11 +275,13 @@ class ABTestingManager:
                 successes=0,
                 failures=0,
                 total_latency=0.0,
-                total_cost=0.0
+                total_cost=0.0,
             )
             await self._store_metrics(experiment_id, variant.variant_id, metrics)
 
-        logger.info(f"Created A/B experiment: {experiment_id} with {len(variants)} variants")
+        logger.info(
+            "Created A/B experiment: %s with %s variants", experiment_id, len(variants)
+        )
 
         return experiment
 
@@ -288,21 +292,20 @@ class ABTestingManager:
             raise ValueError(f"Experiment not found: {experiment_id}")
 
         if experiment.status != ExperimentStatus.DRAFT:
-            raise ValueError(f"Experiment must be in DRAFT status, got {experiment.status}")
+            raise ValueError(
+                f"Experiment must be in DRAFT status, got {experiment.status}"
+            )
 
         experiment.status = ExperimentStatus.RUNNING
         experiment.started_at = datetime.utcnow()
 
         await self._update_experiment(experiment)
 
-        logger.info(f"Started A/B experiment: {experiment_id}")
+        logger.info("Started A/B experiment: %s", experiment_id)
         return True
 
     async def assign_variant(
-        self,
-        experiment_id: str,
-        user_id: str,
-        sticky: bool = True
+        self, experiment_id: str, user_id: str, sticky: bool = True
     ) -> Variant:
         """
         Assign variant to user (traffic splitting).
@@ -343,25 +346,20 @@ class ABTestingManager:
         if sticky:
             assignment_key = self._get_assignment_key(experiment_id, user_id)
             await self.redis.set(
-                assignment_key,
-                variant.variant_id,
-                ex=86400 * 30  # 30 days
+                assignment_key, variant.variant_id, ex=86400 * 30  # 30 days
             )
 
         return variant
 
-    async def record_impression(
-        self,
-        experiment_id: str,
-        variant_id: str
-    ) -> bool:
+    async def record_impression(self, experiment_id: str, variant_id: str) -> bool:
         """Record impression (variant assignment)"""
         metrics = await self._get_metrics(experiment_id, variant_id)
         if not metrics:
-            logger.warning(f"Metrics not found: {experiment_id}/{variant_id}")
+            logger.warning("Metrics not found: %s/%s", experiment_id, variant_id)
             return False
 
         metrics.impressions += 1
+        metrics.calculate_derived_metrics()
         await self._store_metrics(experiment_id, variant_id, metrics)
 
         return True
@@ -371,7 +369,7 @@ class ABTestingManager:
         experiment_id: str,
         variant_id: str,
         latency: float = 0.0,
-        cost: float = 0.0
+        cost: float = 0.0,
     ) -> bool:
         """Record successful execution"""
         metrics = await self._get_metrics(experiment_id, variant_id)
@@ -388,11 +386,7 @@ class ABTestingManager:
 
         return True
 
-    async def record_failure(
-        self,
-        experiment_id: str,
-        variant_id: str
-    ) -> bool:
+    async def record_failure(self, experiment_id: str, variant_id: str) -> bool:
         """Record failed execution"""
         metrics = await self._get_metrics(experiment_id, variant_id)
         if not metrics:
@@ -405,10 +399,7 @@ class ABTestingManager:
 
         return True
 
-    async def get_metrics(
-        self,
-        experiment_id: str
-    ) -> Dict[str, ExperimentMetrics]:
+    async def get_metrics(self, experiment_id: str) -> Dict[str, ExperimentMetrics]:
         """Get metrics for all variants"""
         experiment = await self.get_experiment(experiment_id)
         if not experiment:
@@ -423,9 +414,7 @@ class ABTestingManager:
         return metrics
 
     async def check_winner(
-        self,
-        experiment_id: str,
-        metric: str = "conversion_rate"
+        self, experiment_id: str, metric: str = "conversion_rate"
     ) -> Optional[StatisticalTest]:
         """
         Check for statistical winner.
@@ -446,7 +435,12 @@ class ABTestingManager:
         # Check minimum sample size
         for variant_id, variant_metrics in metrics.items():
             if variant_metrics.impressions < experiment.min_sample_size:
-                logger.info(f"Variant {variant_id} below minimum sample size: {variant_metrics.impressions}/{experiment.min_sample_size}")
+                logger.info(
+                    "Variant %s below minimum sample size: %s/%s",
+                    variant_id,
+                    variant_metrics.impressions,
+                    experiment.min_sample_size,
+                )
                 return None
 
         # For simplicity, compare first two variants (in production, use scipy.stats)
@@ -477,17 +471,18 @@ class ABTestingManager:
             significant=significant,
             confidence_level=experiment.confidence_level,
             p_value=p_value,
-            winner=winner if significant else None
+            winner=winner if significant else None,
         )
 
-        logger.info(f"Statistical test: {test_result.winner if test_result.significant else 'No winner yet'}")
+        logger.info(
+            "Statistical test: %s",
+            test_result.winner if test_result.significant else "No winner yet",
+        )
 
         return test_result
 
     async def promote_winner(
-        self,
-        experiment_id: str,
-        winner_variant_id: Optional[str] = None
+        self, experiment_id: str, winner_variant_id: Optional[str] = None
     ) -> bool:
         """
         Promote winning variant to active workflow version.
@@ -523,8 +518,7 @@ class ABTestingManager:
 
         # Promote winner version to active
         await self.version_manager.set_active_version(
-            experiment.workflow_id,
-            winner_variant.workflow_version
+            experiment.workflow_id, winner_variant.workflow_version
         )
 
         # Update experiment
@@ -534,7 +528,11 @@ class ABTestingManager:
 
         await self._update_experiment(experiment)
 
-        logger.info(f"Promoted winner: {winner_variant_id} (version {winner_variant.workflow_version})")
+        logger.info(
+            "Promoted winner: %s (version %s)",
+            winner_variant_id,
+            winner_variant.workflow_version,
+        )
 
         return True
 
@@ -552,9 +550,7 @@ class ABTestingManager:
         return self._deserialize_experiment(data)
 
     async def list_experiments(
-        self,
-        workflow_id: str,
-        status: Optional[ExperimentStatus] = None
+        self, workflow_id: str, status: Optional[ExperimentStatus] = None
     ) -> List[ABExperiment]:
         """List experiments for workflow"""
         experiments_key = self._get_experiments_key(workflow_id)
@@ -587,21 +583,18 @@ class ABTestingManager:
 
     def _serialize_experiment(self, experiment: ABExperiment) -> str:
         """Serialize experiment to JSON"""
-        import json
+
         return json.dumps(experiment.to_dict())
 
     def _deserialize_experiment(self, data: str) -> ABExperiment:
         """Deserialize experiment from JSON"""
-        import json
+
         return ABExperiment.from_dict(json.loads(data))
 
     async def _get_metrics(
-        self,
-        experiment_id: str,
-        variant_id: str
+        self, experiment_id: str, variant_id: str
     ) -> Optional[ExperimentMetrics]:
         """Get variant metrics from Redis"""
-        import json
 
         metrics_key = self._get_metrics_key(experiment_id, variant_id)
         data = await self.redis.get(metrics_key)
@@ -616,19 +609,13 @@ class ABTestingManager:
         return ExperimentMetrics(**metrics_dict)
 
     async def _store_metrics(
-        self,
-        experiment_id: str,
-        variant_id: str,
-        metrics: ExperimentMetrics
+        self, experiment_id: str, variant_id: str, metrics: ExperimentMetrics
     ) -> bool:
         """Store variant metrics to Redis"""
-        import json
 
         metrics_key = self._get_metrics_key(experiment_id, variant_id)
         await self.redis.set(
-            metrics_key,
-            json.dumps(asdict(metrics)),
-            ex=86400 * 90  # 90 days
+            metrics_key, json.dumps(asdict(metrics)), ex=86400 * 90  # 90 days
         )
 
         return True
@@ -637,9 +624,7 @@ class ABTestingManager:
         """Update experiment in Redis"""
         experiment_key = self._get_experiment_key(experiment.experiment_id)
         await self.redis.set(
-            experiment_key,
-            self._serialize_experiment(experiment),
-            ex=86400 * 90
+            experiment_key, self._serialize_experiment(experiment), ex=86400 * 90
         )
 
         return True
@@ -647,12 +632,9 @@ class ABTestingManager:
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
-        import redis.asyncio as redis
-
         redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
-
-        from .versioning import WorkflowVersionManager
 
         version_manager = WorkflowVersionManager(redis_client)
         ab_manager = ABTestingManager(redis_client, version_manager)
@@ -667,16 +649,16 @@ if __name__ == "__main__":
                     variant_id="control",
                     workflow_version="1.0.0",
                     traffic_weight=0.5,
-                    description="Claude 3.5 Haiku"
+                    description="Claude 3.5 Haiku",
                 ),
                 Variant(
                     variant_id="test",
                     workflow_version="1.1.0",
                     traffic_weight=0.5,
-                    description="GPT-4o-mini"
-                )
+                    description="GPT-4o-mini",
+                ),
             ],
-            min_sample_size=100
+            min_sample_size=100,
         )
 
         print(f"Created experiment: {experiment.experiment_id}")
@@ -692,7 +674,9 @@ if __name__ == "__main__":
             variant = await ab_manager.assign_variant(experiment.experiment_id, user_id)
 
             # Record impression
-            await ab_manager.record_impression(experiment.experiment_id, variant.variant_id)
+            await ab_manager.record_impression(
+                experiment.experiment_id, variant.variant_id
+            )
 
             # Simulate success/failure
             success = random.random() < 0.7  # 70% success rate
@@ -701,10 +685,12 @@ if __name__ == "__main__":
                     experiment.experiment_id,
                     variant.variant_id,
                     latency=random.uniform(1.0, 3.0),
-                    cost=random.uniform(0.01, 0.10)
+                    cost=random.uniform(0.01, 0.10),
                 )
             else:
-                await ab_manager.record_failure(experiment.experiment_id, variant.variant_id)
+                await ab_manager.record_failure(
+                    experiment.experiment_id, variant.variant_id
+                )
 
         # Get metrics
         metrics = await ab_manager.get_metrics(experiment.experiment_id)

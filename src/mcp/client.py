@@ -12,19 +12,20 @@ Features:
 - Privacy mode validation
 """
 
-import aiohttp
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
 
 class MCPServerType(Enum):
     """MCP server types"""
+
     FILESYSTEM = "filesystem"
     GIT = "git"
     MEMORY = "memory"
@@ -33,6 +34,7 @@ class MCPServerType(Enum):
 @dataclass
 class MCPConfig:
     """Configuration for an MCP server"""
+
     server_type: MCPServerType
     base_url: str
     enabled: bool = True
@@ -70,10 +72,12 @@ class MCPClient:
             configs: Dictionary mapping server types to configs
         """
         self.configs = configs
-        self._session = None
+        self._session: Optional[aiohttp.ClientSession] = None
 
         # Initialize sub-clients
-        self.filesystem = FilesystemClient(self) if MCPServerType.FILESYSTEM in configs else None
+        self.filesystem = (
+            FilesystemClient(self) if MCPServerType.FILESYSTEM in configs else None
+        )
         self.git = GitClient(self) if MCPServerType.GIT in configs else None
         self.memory = MemoryClient(self) if MCPServerType.MEMORY in configs else None
 
@@ -83,13 +87,13 @@ class MCPClient:
             self._session = aiohttp.ClientSession()
         return self._session
 
-    async def _request(
+    async def request(
         self,
         server_type: MCPServerType,
         endpoint: str,
         method: str = "POST",
         data: Optional[Dict] = None,
-        params: Optional[Dict] = None
+        params: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """
         Make request to MCP server with retries.
@@ -128,17 +132,26 @@ class MCPClient:
                         resp.raise_for_status()
                         return await resp.json()
                 else:
-                    async with session.post(url, json=data, params=params, timeout=timeout) as resp:
+                    async with session.post(
+                        url, json=data, params=params, timeout=timeout
+                    ) as resp:
                         resp.raise_for_status()
                         return await resp.json()
 
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 last_error = e
-                logger.warning(f"MCP request failed (attempt {attempt + 1}/{config.max_retries}): {e}")
+                logger.warning(
+                    "MCP request failed (attempt %s/%s): %s",
+                    attempt + 1,
+                    config.max_retries,
+                    e,
+                )
 
                 if attempt < config.max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(2**attempt)  # Exponential backoff
 
+        if last_error is None:
+            raise RuntimeError("MCP request failed without an exception")
         raise last_error
 
     async def health_check(self, server_type: MCPServerType) -> bool:
@@ -152,10 +165,10 @@ class MCPClient:
             True if server is healthy
         """
         try:
-            response = await self._request(server_type, "/health", method="GET")
+            response = await self.request(server_type, "/health", method="GET")
             return response.get("status") == "ok"
-        except Exception as e:
-            logger.error(f"Health check failed for {server_type}: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Health check failed for %s: %s", server_type, e)
             return False
 
     async def close(self):
@@ -180,10 +193,8 @@ class FilesystemClient:
         Returns:
             File content as string
         """
-        response = await self.mcp._request(
-            MCPServerType.FILESYSTEM,
-            "/read_file",
-            data={"path": path}
+        response = await self.mcp.request(
+            MCPServerType.FILESYSTEM, "/read_file", data={"path": path}
         )
         return response["content"]
 
@@ -198,10 +209,10 @@ class FilesystemClient:
         Returns:
             True if successful
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.FILESYSTEM,
             "/write_file",
-            data={"path": path, "content": content}
+            data={"path": path, "content": content},
         )
         return response.get("success", False)
 
@@ -215,14 +226,14 @@ class FilesystemClient:
         Returns:
             List of file/directory metadata dicts
         """
-        response = await self.mcp._request(
-            MCPServerType.FILESYSTEM,
-            "/list_directory",
-            data={"path": path}
+        response = await self.mcp.request(
+            MCPServerType.FILESYSTEM, "/list_directory", data={"path": path}
         )
         return response.get("entries", [])
 
-    async def search_files(self, pattern: str, root: str = "/data/projects") -> List[str]:
+    async def search_files(
+        self, pattern: str, root: str = "/data/projects"
+    ) -> List[str]:
         """
         Search for files matching pattern.
 
@@ -233,10 +244,10 @@ class FilesystemClient:
         Returns:
             List of matching file paths
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.FILESYSTEM,
             "/search_files",
-            data={"pattern": pattern, "root": root}
+            data={"pattern": pattern, "root": root},
         )
         return response.get("files", [])
 
@@ -258,10 +269,10 @@ class GitClient:
         Returns:
             List of commit dicts
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.GIT,
             "/log",
-            data={"repo_path": repo_path, "max_commits": max_commits}
+            data={"repo_path": repo_path, "max_commits": max_commits},
         )
         return response.get("commits", [])
 
@@ -277,14 +288,16 @@ class GitClient:
         Returns:
             Diff output as string
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.GIT,
             "/diff",
-            data={"repo_path": repo_path, "commit1": commit1, "commit2": commit2}
+            data={"repo_path": repo_path, "commit1": commit1, "commit2": commit2},
         )
         return response["diff"]
 
-    async def search(self, query: str, repo_path: str, max_results: int = 100) -> List[Dict[str, Any]]:
+    async def search(
+        self, query: str, repo_path: str, max_results: int = 100
+    ) -> List[Dict[str, Any]]:
         """
         Search git repository for query.
 
@@ -296,10 +309,10 @@ class GitClient:
         Returns:
             List of search result dicts
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.GIT,
             "/search",
-            data={"query": query, "repo_path": repo_path, "max_results": max_results}
+            data={"query": query, "repo_path": repo_path, "max_results": max_results},
         )
         return response.get("results", [])
 
@@ -314,10 +327,10 @@ class GitClient:
         Returns:
             Blame data dict
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.GIT,
             "/blame",
-            data={"repo_path": repo_path, "file_path": file_path}
+            data={"repo_path": repo_path, "file_path": file_path},
         )
         return response.get("blame", {})
 
@@ -333,7 +346,7 @@ class MemoryClient:
         user_id: str,
         memory_type: str,
         data: Dict[str, Any],
-        ttl_hours: Optional[int] = None
+        ttl_hours: Optional[int] = None,
     ) -> str:
         """
         Store memory with encryption.
@@ -347,15 +360,15 @@ class MemoryClient:
         Returns:
             Memory ID
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.MEMORY,
             "/store",
             data={
                 "user_id": user_id,
                 "memory_type": memory_type,
                 "data": data,
-                "ttl_hours": ttl_hours
-            }
+                "ttl_hours": ttl_hours,
+            },
         )
         return response["memory_id"]
 
@@ -370,10 +383,10 @@ class MemoryClient:
         Returns:
             Memory data dict
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.MEMORY,
             "/retrieve",
-            data={"user_id": user_id, "memory_id": memory_id}
+            data={"user_id": user_id, "memory_id": memory_id},
         )
         return response.get("data", {})
 
@@ -382,7 +395,7 @@ class MemoryClient:
         user_id: str,
         query: str,
         memory_type: Optional[str] = None,
-        max_results: int = 10
+        max_results: int = 10,
     ) -> List[Dict[str, Any]]:
         """
         Search memories for user.
@@ -396,15 +409,15 @@ class MemoryClient:
         Returns:
             List of memory dicts
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.MEMORY,
             "/search",
             data={
                 "user_id": user_id,
                 "query": query,
                 "memory_type": memory_type,
-                "max_results": max_results
-            }
+                "max_results": max_results,
+            },
         )
         return response.get("memories", [])
 
@@ -419,17 +432,15 @@ class MemoryClient:
         Returns:
             True if successful
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.MEMORY,
             "/delete",
-            data={"user_id": user_id, "memory_id": memory_id}
+            data={"user_id": user_id, "memory_id": memory_id},
         )
         return response.get("success", False)
 
     async def list_memories(
-        self,
-        user_id: str,
-        memory_type: Optional[str] = None
+        self, user_id: str, memory_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         List all memories for user.
@@ -441,37 +452,39 @@ class MemoryClient:
         Returns:
             List of memory metadata dicts
         """
-        response = await self.mcp._request(
+        response = await self.mcp.request(
             MCPServerType.MEMORY,
             "/list",
-            data={"user_id": user_id, "memory_type": memory_type}
+            data={"user_id": user_id, "memory_type": memory_type},
         )
         return response.get("memories", [])
 
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
         # Configure MCP servers
         configs = {
             MCPServerType.FILESYSTEM: MCPConfig(
-                server_type=MCPServerType.FILESYSTEM,
-                base_url="http://localhost:3001"
+                server_type=MCPServerType.FILESYSTEM, base_url="http://localhost:3001"
             ),
             MCPServerType.GIT: MCPConfig(
-                server_type=MCPServerType.GIT,
-                base_url="http://localhost:3002"
+                server_type=MCPServerType.GIT, base_url="http://localhost:3002"
             ),
             MCPServerType.MEMORY: MCPConfig(
-                server_type=MCPServerType.MEMORY,
-                base_url="http://localhost:3003"
-            )
+                server_type=MCPServerType.MEMORY, base_url="http://localhost:3003"
+            ),
         }
 
         client = MCPClient(configs)
 
         # Health checks
-        for server_type in [MCPServerType.FILESYSTEM, MCPServerType.GIT, MCPServerType.MEMORY]:
+        for server_type in [
+            MCPServerType.FILESYSTEM,
+            MCPServerType.GIT,
+            MCPServerType.MEMORY,
+        ]:
             is_healthy = await client.health_check(server_type)
             print(f"{server_type.value}: {'✓' if is_healthy else '✗'}")
 
@@ -488,9 +501,7 @@ if __name__ == "__main__":
         # Memory operations
         if client.memory:
             memory_id = await client.memory.store(
-                "user_123",
-                "preferences",
-                {"theme": "dark", "language": "en"}
+                "user_123", "preferences", {"theme": "dark", "language": "en"}
             )
             print(f"\nStored memory: {memory_id}")
 

@@ -15,12 +15,12 @@ import sys
 import os
 
 # Add parent directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from tests.performance.benchmark import PerformanceBenchmark
-from src.tools.registry import ToolRegistry
-from src.agents.coordinator import AgentCoordinator, EventBus
-from unittest.mock import AsyncMock
+from tests.performance.benchmark import PerformanceBenchmark  # noqa: E402
+from src.tools.registry import ToolRegistry  # noqa: E402
+from src.agents.coordinator import AgentCoordinator, EventBus  # noqa: E402
+from unittest.mock import AsyncMock  # noqa: E402
 
 
 class AgentBenchmarks:
@@ -40,9 +40,9 @@ class AgentBenchmarks:
 
     async def run_all(self):
         """Run all agent benchmarks"""
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("  🤖 MULTI-AGENT SYSTEM PERFORMANCE BENCHMARKS")
-        print("="*70)
+        print("=" * 70)
 
         await self.benchmark_tool_registry()
         await self.benchmark_agent_messaging()
@@ -63,10 +63,8 @@ class AgentBenchmarks:
 
         # Register 100 tools
         for i in range(100):
-            @registry.register_function(
-                description=f"Tool {i}",
-                category="test"
-            )
+
+            @registry.register_function(description=f"Tool {i}", category="test")
             def tool_func(x: int = i):
                 return x * 2
 
@@ -79,7 +77,7 @@ class AgentBenchmarks:
             name="Tool Registry Lookup",
             func=lookup_tool,
             iterations=10000,
-            concurrency=50
+            concurrency=50,
         )
 
         # Benchmark: Tool execution
@@ -88,10 +86,7 @@ class AgentBenchmarks:
             return result
 
         result2 = await self.benchmark.run(
-            name="Tool Execution",
-            func=execute_tool,
-            iterations=1000,
-            concurrency=20
+            name="Tool Execution", func=execute_tool, iterations=1000, concurrency=20
         )
 
         self.benchmark.print_report(result1)
@@ -121,7 +116,7 @@ class AgentBenchmarks:
                 type=MessageType.TASK_ASSIGNMENT,
                 sender="coordinator",
                 recipient="agent1",
-                content={"task": "test"}
+                content={"task": "test"},
             )
             await event_bus.publish(message)
 
@@ -129,7 +124,7 @@ class AgentBenchmarks:
             name="Message Publishing",
             func=publish_message,
             iterations=1000,
-            concurrency=10
+            concurrency=10,
         )
 
         self.benchmark.print_report(result)
@@ -164,7 +159,7 @@ class AgentBenchmarks:
             name="Fast Tool (Math)",
             func=execute_fast,
             iterations=10000,
-            concurrency=100
+            concurrency=100,
         )
 
         # Benchmark medium tool
@@ -175,7 +170,7 @@ class AgentBenchmarks:
             name="Medium Tool (Compute)",
             func=execute_medium,
             iterations=1000,
-            concurrency=50
+            concurrency=50,
         )
 
         # Benchmark slow tool
@@ -183,10 +178,7 @@ class AgentBenchmarks:
             return await registry.execute("slow_tool", {"delay": 0.01})
 
         result3 = await self.benchmark.run(
-            name="Slow Tool (I/O)",
-            func=execute_slow,
-            iterations=100,
-            concurrency=10
+            name="Slow Tool (I/O)", func=execute_slow, iterations=100, concurrency=10
         )
 
         self.benchmark.print_report(result1)
@@ -217,7 +209,7 @@ class AgentBenchmarks:
                 agent_id=f"coder_{i}",
                 event_bus=event_bus,
                 tool_registry=registry,
-                provider_router=mock_router
+                provider_router=mock_router,
             )
             agents.append(agent)
             await coordinator.register_agent(agent)
@@ -232,7 +224,7 @@ class AgentBenchmarks:
             name="Concurrent Task Assignment (10 agents)",
             func=assign_task,
             iterations=100,
-            concurrency=20
+            concurrency=20,
         )
 
         self.benchmark.print_report(result)
@@ -246,9 +238,9 @@ class RAGBenchmarks:
 
     async def run_all(self):
         """Run all RAG benchmarks"""
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("  🔍 RAG SYSTEM PERFORMANCE BENCHMARKS")
-        print("="*70)
+        print("=" * 70)
 
         await self.benchmark_bm25_search()
         await self.benchmark_metadata_filtering()
@@ -267,10 +259,7 @@ class RAGBenchmarks:
 
         # Create index with 1000 documents
         bm25 = BM25Index()
-        documents = [
-            f"This is document {i} about topic {i % 10}"
-            for i in range(1000)
-        ]
+        documents = [f"This is document {i} about topic {i % 10}" for i in range(1000)]
         doc_ids = [f"doc_{i}" for i in range(1000)]
 
         bm25.index_documents(documents, doc_ids)
@@ -284,7 +273,7 @@ class RAGBenchmarks:
             name="BM25 Search (1000 docs)",
             func=search_bm25,
             iterations=1000,
-            concurrency=20
+            concurrency=20,
         )
 
         self.benchmark.print_report(result)
@@ -293,7 +282,10 @@ class RAGBenchmarks:
         """Benchmark metadata filter construction"""
         print("\n🔎 Metadata Filtering Benchmark")
 
-        from src.rag.metadata_filter import FilterBuilder, TemporalFilter, CategoryFilter
+        from src.rag.metadata_filter import (
+            FilterBuilder,
+            CategoryFilter,
+        )
 
         # Benchmark: Simple filter construction
         async def build_simple_filter():
@@ -304,12 +296,13 @@ class RAGBenchmarks:
             name="Simple Filter Construction",
             func=build_simple_filter,
             iterations=10000,
-            concurrency=50
+            concurrency=50,
         )
 
         # Benchmark: Complex filter construction
         async def build_complex_filter():
-            filter = (FilterBuilder()
+            filter = (
+                FilterBuilder()
                 .add_category("tech")
                 .add_last_n_days("created_at", 7)
                 .add_score_above("relevance", 0.8)
@@ -322,7 +315,7 @@ class RAGBenchmarks:
             name="Complex Filter Construction",
             func=build_complex_filter,
             iterations=10000,
-            concurrency=50
+            concurrency=50,
         )
 
         self.benchmark.print_report(result1)
@@ -339,9 +332,9 @@ async def main():
     rag_bench = RAGBenchmarks()
     await rag_bench.run_all()
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("  ✅ ALL BENCHMARKS COMPLETE")
-    print("="*70)
+    print("=" * 70)
     print("\n  Results exported to:")
     print("    - agent_benchmark_results.json")
     print("    - rag_benchmark_results.json")

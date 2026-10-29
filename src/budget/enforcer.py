@@ -1,16 +1,14 @@
 """Budget Enforcer with Redis atomic operations"""
 
-import redis.asyncio as redis
-from typing import Optional
-from datetime import datetime, timedelta
 import logging
+
+import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
 
 class BudgetExceededError(Exception):
     """Raised when budget limit would be exceeded"""
-    pass
 
 
 class BudgetEnforcer:
@@ -35,7 +33,7 @@ class BudgetEnforcer:
         await self.redis.expire(key, ttl)
         await self.redis.expire(limit_key, ttl)
 
-        logger.info(f"Created ${limit_usd} {period} budget for {user_id}")
+        logger.info("Created $%s %s budget for %s", limit_usd, period, user_id)
 
     async def check_budget(self, user_id: str, period: str, cost: float) -> bool:
         """Check if cost can be deducted without exceeding limit"""
@@ -59,7 +57,7 @@ class BudgetEnforcer:
                     current = float(await pipe.get(key) or 0)
                     limit = float(await pipe.get(f"{key}:limit") or 0)
 
-                    if limit > 0 and (current + cost) > limit:
+                    if 0 < limit < current + cost:
                         raise BudgetExceededError(
                             f"Budget exceeded: ${current:.4f} + ${cost:.4f} > ${limit:.4f}"
                         )
@@ -71,7 +69,7 @@ class BudgetEnforcer:
                 except redis.WatchError:
                     continue  # Retry on concurrent modification
 
-        logger.debug(f"Deducted ${cost:.6f} from {user_id} {period} budget")
+        logger.debug("Deducted $%.6f from %s %s budget", cost, user_id, period)
 
     async def get_status(self, user_id: str, period: str) -> dict:
         """Get budget status"""
@@ -83,5 +81,5 @@ class BudgetEnforcer:
             "current_spend": current,
             "limit": limit,
             "remaining": max(0, limit - current),
-            "utilization": (current / limit * 100) if limit > 0 else 0
+            "utilization": (current / limit * 100) if limit > 0 else 0,
         }

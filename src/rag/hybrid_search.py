@@ -22,29 +22,31 @@ Usage:
     results = await rag.search(query, top_k=5, semantic_weight=0.7)
 
     # Search with metadata filtering
-    filter = (FilterBuilder()
+    metadata_filter = (FilterBuilder()
         .add_category("tech")
         .add_last_n_days("created_at", 7)
         .add_score_above("relevance", 0.8)
         .build()
     )
-    results = await rag.search(query, top_k=5, filters=filter)
+    results = await rag.search(query, top_k=5, filters=metadata_filter)
 """
 
-from typing import List, Dict, Optional, Tuple, Union
-from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, ScoredPoint
-import numpy as np
+import asyncio
 import logging
+from typing import Any, Callable, Dict, List, Optional, Union
+
+import numpy as np
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, Filter, VectorParams
+
 from .bm25_index import BM25Index
 from .metadata_filter import (
-    MetadataFilter,
+    CategoryFilter,
     CompositeFilter,
     FilterBuilder,
-    TemporalFilter,
-    CategoryFilter,
+    MetadataFilter,
     NumericFilter,
-    HierarchicalFilter
+    TemporalFilter,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ class HybridSearchRAG:
         self,
         qdrant_client: QdrantClient,
         collection_name: str,
-        semantic_weight: float = 0.7
+        semantic_weight: float = 0.7,
     ):
         """
         Initialize hybrid search.
@@ -80,12 +82,10 @@ class HybridSearchRAG:
         self.semantic_weight = semantic_weight
         self.keyword_weight = 1.0 - semantic_weight
         self.bm25: Optional[BM25Index] = None
-        self._documents_cache = {}
+        self._documents_cache: Dict[Any, Any] = {}
 
-    async def index_documents(
-        self,
-        documents: List[Dict],
-        embedding_function: callable
+    async def index_documents(  # pylint: disable=unused-argument
+        self, documents: List[Dict], embedding_function: Callable[..., Any]
     ) -> None:
         """
         Index documents in both Qdrant (semantic) and BM25 (keyword).
@@ -95,17 +95,17 @@ class HybridSearchRAG:
             embedding_function: Function to generate embeddings
                                 Signature: async def embed(text: str) -> List[float]
         """
-        logger.info(f"Indexing {len(documents)} documents for hybrid search...")
+        logger.info("Indexing %s documents for hybrid search...", len(documents))
 
         # Build BM25 index
-        texts = [doc['text'] for doc in documents]
-        doc_ids = [doc['id'] for doc in documents]
+        texts = [doc["text"] for doc in documents]
+        doc_ids = [doc["id"] for doc in documents]
 
         self.bm25 = BM25Index()
         self.bm25.index_documents(texts, doc_ids)
 
         # Cache documents for later retrieval
-        self._documents_cache = {doc['id']: doc for doc in documents}
+        self._documents_cache = {doc["id"]: doc for doc in documents}
 
         logger.info("Hybrid indexing complete")
 
@@ -115,7 +115,7 @@ class HybridSearchRAG:
         query_vector: List[float],
         top_k: int = 10,
         filters: Optional[Union[Filter, MetadataFilter, CompositeFilter]] = None,
-        semantic_weight: Optional[float] = None
+        semantic_weight: Optional[float] = None,
     ) -> List[Dict]:
         """
         Hybrid search with combined semantic + keyword scores.
@@ -137,23 +137,25 @@ class HybridSearchRAG:
             results = await rag.search("machine learning", query_vec, top_k=10)
 
             # With category filter
-            filter = CategoryFilter.by_category("tech")
-            results = await rag.search("ML", query_vec, filters=filter)
+            metadata_filter = CategoryFilter.by_category("tech")
+            results = await rag.search("ML", query_vec, filters=metadata_filter)
 
             # With composite filter
-            filter = (FilterBuilder()
+            metadata_filter = (FilterBuilder()
                 .add_category("tech")
                 .add_last_n_days("created_at", 7)
                 .add_score_above("relevance", 0.8)
                 .build()
             )
-            results = await rag.search("AI", query_vec, filters=filter)
+            results = await rag.search("AI", query_vec, filters=metadata_filter)
         """
         if self.bm25 is None:
             raise RuntimeError("BM25 index not built. Call index_documents() first.")
 
         # Use provided weight or default
-        sem_weight = semantic_weight if semantic_weight is not None else self.semantic_weight
+        sem_weight = (
+            semantic_weight if semantic_weight is not None else self.semantic_weight
+        )
         kw_weight = 1.0 - sem_weight
 
         # Convert custom filter types to Qdrant Filter
@@ -174,14 +176,14 @@ class HybridSearchRAG:
             collection_name=self.collection,
             query_vector=query_vector,
             limit=top_k * 2,  # Over-fetch
-            query_filter=qdrant_filter
+            query_filter=qdrant_filter,
         )
 
         # 2. Keyword search (BM25)
         keyword_results = self.bm25.search(query, top_k=top_k * 2, normalize=True)
 
         # 3. Combine scores
-        combined_scores = {}
+        combined_scores: Dict[Union[int, str], float] = {}
 
         # Add semantic scores
         for result in semantic_results:
@@ -189,8 +191,8 @@ class HybridSearchRAG:
             combined_scores[doc_id] = sem_weight * result.score
 
         # Add keyword scores
-        keyword_dict = dict(keyword_results)
-        for doc_id in combined_scores.keys():
+        keyword_dict: Dict[Union[int, str], float] = dict(keyword_results)
+        for doc_id in combined_scores:
             if doc_id in keyword_dict:
                 combined_scores[doc_id] += kw_weight * keyword_dict[doc_id]
 
@@ -200,27 +202,29 @@ class HybridSearchRAG:
                 combined_scores[doc_id] = kw_weight * kw_score
 
         # 4. Sort and return top-k
-        ranked = sorted(
-            combined_scores.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:top_k]
+        ranked = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[
+            :top_k
+        ]
 
         # 5. Construct result objects
         results = []
         for doc_id, score in ranked:
             if doc_id in self._documents_cache:
                 doc = self._documents_cache[doc_id]
-                results.append({
-                    'id': doc_id,
-                    'score': score,
-                    'text': doc.get('text', ''),
-                    'metadata': doc.get('metadata', {})
-                })
+                results.append(
+                    {
+                        "id": doc_id,
+                        "score": score,
+                        "text": doc.get("text", ""),
+                        "metadata": doc.get("metadata", {}),
+                    }
+                )
 
         logger.debug(
-            f"Hybrid search: {len(results)} results, "
-            f"weights={sem_weight:.1f}/{kw_weight:.1f}"
+            "Hybrid search: %s results, weights=%.1f/%.1f",
+            len(results),
+            sem_weight,
+            kw_weight,
         )
 
         return results
@@ -231,7 +235,7 @@ class HybridSearchRAG:
         query_vector: List[float],
         category: str,
         top_k: int = 10,
-        category_field: str = "category"
+        category_field: str = "category",
     ) -> List[Dict]:
         """
         Convenience method: Search within specific category.
@@ -246,8 +250,10 @@ class HybridSearchRAG:
         Returns:
             Search results
         """
-        filter = CategoryFilter.by_category(category, field=category_field)
-        return await self.search(query, query_vector, top_k=top_k, filters=filter)
+        metadata_filter = CategoryFilter.by_category(category, field=category_field)
+        return await self.search(
+            query, query_vector, top_k=top_k, filters=metadata_filter
+        )
 
     async def search_recent(
         self,
@@ -255,7 +261,7 @@ class HybridSearchRAG:
         query_vector: List[float],
         days: int = 7,
         top_k: int = 10,
-        date_field: str = "created_at"
+        date_field: str = "created_at",
     ) -> List[Dict]:
         """
         Convenience method: Search recent documents (last N days).
@@ -270,8 +276,10 @@ class HybridSearchRAG:
         Returns:
             Search results
         """
-        filter = TemporalFilter.last_n_days(date_field, days)
-        return await self.search(query, query_vector, top_k=top_k, filters=filter)
+        metadata_filter = TemporalFilter.last_n_days(date_field, days)
+        return await self.search(
+            query, query_vector, top_k=top_k, filters=metadata_filter
+        )
 
     async def search_by_author(
         self,
@@ -279,7 +287,7 @@ class HybridSearchRAG:
         query_vector: List[float],
         author: str,
         top_k: int = 10,
-        author_field: str = "author"
+        author_field: str = "author",
     ) -> List[Dict]:
         """
         Convenience method: Search by author.
@@ -294,8 +302,10 @@ class HybridSearchRAG:
         Returns:
             Search results
         """
-        filter = CategoryFilter.by_author(author, field=author_field)
-        return await self.search(query, query_vector, top_k=top_k, filters=filter)
+        metadata_filter = CategoryFilter.by_author(author, field=author_field)
+        return await self.search(
+            query, query_vector, top_k=top_k, filters=metadata_filter
+        )
 
     async def search_with_score_threshold(
         self,
@@ -303,7 +313,7 @@ class HybridSearchRAG:
         query_vector: List[float],
         min_score: float,
         top_k: int = 10,
-        score_field: str = "quality_score"
+        score_field: str = "quality_score",
     ) -> List[Dict]:
         """
         Convenience method: Search with minimum quality score.
@@ -318,8 +328,10 @@ class HybridSearchRAG:
         Returns:
             Search results
         """
-        filter = NumericFilter.above_threshold(score_field, min_score)
-        return await self.search(query, query_vector, top_k=top_k, filters=filter)
+        metadata_filter = NumericFilter.above_threshold(score_field, min_score)
+        return await self.search(
+            query, query_vector, top_k=top_k, filters=metadata_filter
+        )
 
     async def search_advanced(
         self,
@@ -330,7 +342,7 @@ class HybridSearchRAG:
         days: Optional[int] = None,
         min_score: Optional[float] = None,
         tags: Optional[List[str]] = None,
-        top_k: int = 10
+        top_k: int = 10,
     ) -> List[Dict]:
         """
         Convenience method: Advanced search with multiple filters.
@@ -340,10 +352,10 @@ class HybridSearchRAG:
         Args:
             query: Search query
             query_vector: Query embedding
-            category: Category filter
-            author: Author filter
-            days: Recent days filter
-            min_score: Minimum score filter
+            category: Category metadata_filter
+            author: Author metadata_filter
+            days: Recent days metadata_filter
+            min_score: Minimum score metadata_filter
             tags: Tags filter (has all tags)
             top_k: Number of results
 
@@ -367,27 +379,26 @@ class HybridSearchRAG:
         if tags:
             builder.add_tags(tags, match_all=True)
 
-        filter = builder.build()
+        metadata_filter = builder.build()
 
-        return await self.search(query, query_vector, top_k=top_k, filters=filter)
+        return await self.search(
+            query, query_vector, top_k=top_k, filters=metadata_filter
+        )
 
     def get_stats(self) -> Dict:
         """Get search statistics."""
         return {
-            'collection': self.collection,
-            'semantic_weight': self.semantic_weight,
-            'keyword_weight': self.keyword_weight,
-            'bm25_indexed': self.bm25 is not None,
-            'bm25_stats': self.bm25.get_index_size() if self.bm25 else {},
-            'metadata_filtering_enabled': True  # TASK-037/038
+            "collection": self.collection,
+            "semantic_weight": self.semantic_weight,
+            "keyword_weight": self.keyword_weight,
+            "bm25_indexed": self.bm25 is not None,
+            "bm25_stats": self.bm25.get_index_size() if self.bm25 else {},
+            "metadata_filtering_enabled": True,  # TASK-037/038
         }
 
 
 # Example usage
 if __name__ == "__main__":
-    import asyncio
-    from qdrant_client import QdrantClient
-    from qdrant_client.models import Distance, VectorParams
 
     async def example():
         # Initialize Qdrant
@@ -398,23 +409,31 @@ if __name__ == "__main__":
         try:
             qdrant.create_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=384, distance=Distance.COSINE),
             )
-        except:
-            pass
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # collection already exists
 
         # Initialize hybrid search
         hybrid_rag = HybridSearchRAG(qdrant, collection_name, semantic_weight=0.7)
 
         # Mock embedding function
-        async def embed(text):
+        async def embed(_text):
             return np.random.rand(384).tolist()
 
         # Index documents
         documents = [
             {"id": "1", "text": "Machine learning is AI", "metadata": {"type": "tech"}},
-            {"id": "2", "text": "Python programming language", "metadata": {"type": "tech"}},
-            {"id": "3", "text": "Deep learning neural networks", "metadata": {"type": "tech"}},
+            {
+                "id": "2",
+                "text": "Python programming language",
+                "metadata": {"type": "tech"},
+            },
+            {
+                "id": "3",
+                "text": "Deep learning neural networks",
+                "metadata": {"type": "tech"},
+            },
         ]
 
         await hybrid_rag.index_documents(documents, embed)

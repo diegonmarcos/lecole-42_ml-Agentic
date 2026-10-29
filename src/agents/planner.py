@@ -7,11 +7,11 @@ Breaks down complex tasks into actionable steps.
 
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict
 
-from .base_agent import BaseAgent
 from src.providers.router import Tier
 
+from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class PlannerAgent(BaseAgent):
         if not instruction:
             return {"error": "No instruction provided"}
 
-        logger.info(f"Planning task: {instruction}")
+        logger.info("Planning task: %s", instruction)
 
         # Call LLM for planning
         plan_prompt = f"""Break down the following task into concrete, actionable steps:
@@ -72,7 +72,7 @@ Plan:"""
         response = await self.call_llm(
             messages=[{"role": "user", "content": plan_prompt}],
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=1000,
         )
 
         # Parse plan
@@ -82,18 +82,14 @@ Plan:"""
             # Remember the plan
             self.remember("last_plan", plan)
 
-            return {
-                "status": "success",
-                "plan": plan,
-                "planner": self.agent_id
-            }
+            return {"status": "success", "plan": plan, "planner": self.agent_id}
 
         except json.JSONDecodeError:
-            logger.error(f"Failed to parse plan: {response}")
+            logger.error("Failed to parse plan: %s", response)
             return {
                 "status": "error",
                 "error": "Failed to parse plan",
-                "raw_response": response
+                "raw_response": response,
             }
 
     def get_system_prompt(self) -> str:

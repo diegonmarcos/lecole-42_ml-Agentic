@@ -11,16 +11,19 @@ Benefits over fixed-size chunking:
 - Better retrieval accuracy (10-15% improvement)
 """
 
-import spacy
-import numpy as np
-from typing import List, Dict, Optional, Tuple
+import subprocess
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import spacy
 from sentence_transformers import SentenceTransformer
 
 
 @dataclass
 class Chunk:
     """Semantic chunk with metadata"""
+
     text: str
     start_char: int
     end_char: int
@@ -51,7 +54,7 @@ class SemanticChunker:
         overlap_sentences: int = 1,
         similarity_threshold: float = 0.7,
         spacy_model: str = "en_core_web_sm",
-        embedding_model: str = "all-MiniLM-L6-v2"
+        embedding_model: str = "all-MiniLM-L6-v2",
     ):
         """
         Initialize semantic chunker.
@@ -74,8 +77,10 @@ class SemanticChunker:
             self.nlp = spacy.load(spacy_model)
         except OSError:
             # Download if not available
-            import subprocess
-            subprocess.run(["python", "-m", "spacy", "download", spacy_model])
+
+            subprocess.run(
+                ["python", "-m", "spacy", "download", spacy_model], check=False
+            )
             self.nlp = spacy.load(spacy_model)
 
         self.embedding_model = SentenceTransformer(embedding_model)
@@ -120,10 +125,7 @@ class SemanticChunker:
 
         return float(similarity)
 
-    def _merge_sentences(
-        self,
-        sentences: List[Tuple[str, int, int]]
-    ) -> List[Chunk]:
+    def _merge_sentences(self, sentences: List[Tuple[str, int, int]]) -> List[Chunk]:
         """
         Merge adjacent sentences into semantic chunks.
 
@@ -137,11 +139,11 @@ class SemanticChunker:
             return []
 
         chunks = []
-        current_chunk = {
+        current_chunk: Dict[str, Any] = {
             "sentences": [sentences[0][0]],
             "start": sentences[0][1],
             "end": sentences[0][2],
-            "length": len(sentences[0][0])
+            "length": len(sentences[0][0]),
         }
 
         for i in range(1, len(sentences)):
@@ -151,19 +153,21 @@ class SemanticChunker:
             # Check if adding this sentence exceeds max_chunk_size
             if current_chunk["length"] + sent_len > self.max_chunk_size:
                 # Finalize current chunk
-                chunks.append(Chunk(
-                    text=" ".join(current_chunk["sentences"]),
-                    start_char=current_chunk["start"],
-                    end_char=current_chunk["end"],
-                    sentence_count=len(current_chunk["sentences"])
-                ))
+                chunks.append(
+                    Chunk(
+                        text=" ".join(current_chunk["sentences"]),
+                        start_char=current_chunk["start"],
+                        end_char=current_chunk["end"],
+                        sentence_count=len(current_chunk["sentences"]),
+                    )
+                )
 
                 # Start new chunk
                 current_chunk = {
                     "sentences": [sent_text],
                     "start": start_char,
                     "end": end_char,
-                    "length": sent_len
+                    "length": sent_len,
                 }
             else:
                 # Check semantic similarity with last sentence in current chunk
@@ -178,18 +182,20 @@ class SemanticChunker:
                 else:
                     # Start new chunk (low similarity)
                     if current_chunk["length"] >= self.min_chunk_size:
-                        chunks.append(Chunk(
-                            text=" ".join(current_chunk["sentences"]),
-                            start_char=current_chunk["start"],
-                            end_char=current_chunk["end"],
-                            sentence_count=len(current_chunk["sentences"])
-                        ))
+                        chunks.append(
+                            Chunk(
+                                text=" ".join(current_chunk["sentences"]),
+                                start_char=current_chunk["start"],
+                                end_char=current_chunk["end"],
+                                sentence_count=len(current_chunk["sentences"]),
+                            )
+                        )
 
                         current_chunk = {
                             "sentences": [sent_text],
                             "start": start_char,
                             "end": end_char,
-                            "length": sent_len
+                            "length": sent_len,
                         }
                     else:
                         # Current chunk too small, merge anyway
@@ -199,19 +205,21 @@ class SemanticChunker:
 
         # Add final chunk
         if current_chunk["sentences"]:
-            chunks.append(Chunk(
-                text=" ".join(current_chunk["sentences"]),
-                start_char=current_chunk["start"],
-                end_char=current_chunk["end"],
-                sentence_count=len(current_chunk["sentences"])
-            ))
+            chunks.append(
+                Chunk(
+                    text=" ".join(current_chunk["sentences"]),
+                    start_char=current_chunk["start"],
+                    end_char=current_chunk["end"],
+                    sentence_count=len(current_chunk["sentences"]),
+                )
+            )
 
         return chunks
 
     def _add_overlap(
         self,
         chunks: List[Chunk],
-        sentences: List[Tuple[str, int, int]]
+        sentences: List[Tuple[str, int, int]],  # pylint: disable=unused-argument
     ) -> List[Chunk]:
         """
         Add sentence overlap between chunks for context preservation.
@@ -226,9 +234,6 @@ class SemanticChunker:
         if self.overlap_sentences == 0 or len(chunks) <= 1:
             return chunks
 
-        # Build sentence index by start position
-        sent_by_start = {start: text for text, start, _ in sentences}
-
         overlapped_chunks = []
 
         for i, chunk in enumerate(chunks):
@@ -242,20 +247,20 @@ class SemanticChunker:
             prev_sentences = prev_chunk.text.split(". ")
 
             # Take last N sentences from previous chunk
-            overlap_text = ". ".join(
-                prev_sentences[-self.overlap_sentences:]
-            )
+            overlap_text = ". ".join(prev_sentences[-self.overlap_sentences :])
 
             # Prepend overlap to current chunk
             new_text = f"{overlap_text}. {chunk.text}"
 
-            overlapped_chunks.append(Chunk(
-                text=new_text,
-                start_char=chunk.start_char,
-                end_char=chunk.end_char,
-                sentence_count=chunk.sentence_count + self.overlap_sentences,
-                metadata={"overlap_sentences": self.overlap_sentences}
-            ))
+            overlapped_chunks.append(
+                Chunk(
+                    text=new_text,
+                    start_char=chunk.start_char,
+                    end_char=chunk.end_char,
+                    sentence_count=chunk.sentence_count + self.overlap_sentences,
+                    metadata={"overlap_sentences": self.overlap_sentences},
+                )
+            )
 
         return overlapped_chunks
 
@@ -292,9 +297,7 @@ class SemanticChunker:
         return chunks
 
     def chunk_documents(
-        self,
-        documents: List[Dict[str, str]],
-        text_field: str = "text"
+        self, documents: List[Dict[str, str]], text_field: str = "text"
     ) -> List[Chunk]:
         """
         Chunk multiple documents.
@@ -318,7 +321,7 @@ class SemanticChunker:
             metadata = {
                 "doc_id": doc.get("id", f"doc_{i}"),
                 "source": doc.get("source", "unknown"),
-                **{k: v for k, v in doc.items() if k != text_field}
+                **{k: v for k, v in doc.items() if k != text_field},
             }
 
             chunks = self.chunk_text(text, metadata=metadata)
@@ -328,7 +331,8 @@ class SemanticChunker:
 
 
 # Example usage
-if __name__ == "__main__":
+def _demo() -> None:
+    """Run a small demonstration of this module."""
     # Sample text
     text = """
     Artificial intelligence (AI) is transforming the world. Machine learning,
@@ -349,7 +353,7 @@ if __name__ == "__main__":
         max_chunk_size=200,
         min_chunk_size=50,
         overlap_sentences=1,
-        similarity_threshold=0.7
+        similarity_threshold=0.7,
     )
 
     # Chunk text
@@ -364,10 +368,14 @@ if __name__ == "__main__":
     # Chunk multiple documents
     documents = [
         {"id": "doc1", "source": "wikipedia", "text": text},
-        {"id": "doc2", "source": "blog", "text": "Short document."}
+        {"id": "doc2", "source": "blog", "text": "Short document."},
     ]
 
     all_chunks = chunker.chunk_documents(documents)
     print(f"\nTotal chunks from {len(documents)} documents: {len(all_chunks)}")
     for chunk in all_chunks[:2]:
-        print(f"  - Doc {chunk.metadata['doc_id']}: {chunk.text[:50]}...")
+        print(f"  - Doc {(chunk.metadata or {}).get('doc_id')}: {chunk.text[:50]}...")
+
+
+if __name__ == "__main__":
+    _demo()

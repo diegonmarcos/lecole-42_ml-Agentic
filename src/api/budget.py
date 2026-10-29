@@ -9,16 +9,16 @@ Provides REST API for:
 - Alert management
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-import redis.asyncio as redis
 import os
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from src.cost.redis_tracker import RedisCostTracker, CostAlertManager
-from src.budget.enforcer import BudgetEnforcer, BudgetExceededError
+import redis.asyncio as redis
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
+from src.budget.enforcer import BudgetEnforcer
+from src.cost.redis_tracker import RedisCostTracker
 
 # API Router
 router = APIRouter(prefix="/api/v1/budget", tags=["budget"])
@@ -27,13 +27,17 @@ router = APIRouter(prefix="/api/v1/budget", tags=["budget"])
 # Pydantic Models
 class BudgetLimit(BaseModel):
     """Budget limit configuration"""
+
     user_id: str = Field(..., description="User identifier")
-    period: str = Field(..., pattern="^(daily|weekly|monthly)$", description="Budget period")
+    period: str = Field(
+        ..., pattern="^(daily|weekly|monthly)$", description="Budget period"
+    )
     limit: float = Field(..., gt=0, description="Budget limit in USD")
 
 
 class BudgetResponse(BaseModel):
     """Budget status response"""
+
     user_id: str
     period: str
     limit: float
@@ -45,6 +49,7 @@ class BudgetResponse(BaseModel):
 
 class CostEntry(BaseModel):
     """Cost tracking entry"""
+
     user_id: str
     tier: int = Field(..., ge=0, le=4)
     cost: float = Field(..., gt=0)
@@ -53,6 +58,7 @@ class CostEntry(BaseModel):
 
 class TopSpender(BaseModel):
     """Top spender entry"""
+
     user_id: str
     cost: float
     limit: Optional[float]
@@ -61,6 +67,7 @@ class TopSpender(BaseModel):
 
 class UtilizationReport(BaseModel):
     """Budget utilization summary"""
+
     period: str
     total_users: int
     total_spend: float
@@ -77,7 +84,7 @@ async def get_redis():
     redis_client = redis.from_url(
         os.getenv("REDIS_URL", "redis://localhost:6379"),
         encoding="utf-8",
-        decode_responses=True
+        decode_responses=True,
     )
     try:
         yield redis_client
@@ -100,10 +107,10 @@ async def get_budget_enforcer(redis_client: redis.Redis = Depends(get_redis)):
 # Budget Limit Management
 # ============================================================================
 
+
 @router.post("/limit", response_model=BudgetResponse, status_code=201)
 async def set_budget_limit(
-    budget: BudgetLimit,
-    redis_client: redis.Redis = Depends(get_redis)
+    budget: BudgetLimit, redis_client: redis.Redis = Depends(get_redis)
 ):
     """
     Set budget limit for user.
@@ -145,7 +152,7 @@ async def set_budget_limit(
         current_spend=current_spend,
         utilization=utilization,
         remaining=max(0, budget.limit - current_spend),
-        status=status
+        status=status,
     )
 
 
@@ -153,7 +160,7 @@ async def set_budget_limit(
 async def get_budget_limits(
     user_id: str,
     periods: Optional[List[str]] = Query(default=["daily", "weekly", "monthly"]),
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
 ):
     """
     Get budget limits and status for user.
@@ -163,7 +170,7 @@ async def get_budget_limits(
     """
     responses = []
 
-    for period in periods:
+    for period in periods or []:
         limit_key = f"budget:{user_id}:{period}:limit"
         cost_key = f"cost:{period}:user:{user_id}"
 
@@ -187,24 +194,24 @@ async def get_budget_limits(
         else:
             status = "ok"
 
-        responses.append(BudgetResponse(
-            user_id=user_id,
-            period=period,
-            limit=limit,
-            current_spend=current_spend,
-            utilization=utilization,
-            remaining=max(0, limit - current_spend),
-            status=status
-        ))
+        responses.append(
+            BudgetResponse(
+                user_id=user_id,
+                period=period,
+                limit=limit,
+                current_spend=current_spend,
+                utilization=utilization,
+                remaining=max(0, limit - current_spend),
+                status=status,
+            )
+        )
 
     return responses
 
 
 @router.delete("/limit/{user_id}/{period}", status_code=204)
 async def delete_budget_limit(
-    user_id: str,
-    period: str,
-    redis_client: redis.Redis = Depends(get_redis)
+    user_id: str, period: str, redis_client: redis.Redis = Depends(get_redis)
 ):
     """
     Delete budget limit for user.
@@ -223,10 +230,10 @@ async def delete_budget_limit(
 # Cost Tracking
 # ============================================================================
 
+
 @router.post("/track", status_code=202)
 async def track_cost(
-    cost_entry: CostEntry,
-    tracker: RedisCostTracker = Depends(get_cost_tracker)
+    cost_entry: CostEntry, tracker: RedisCostTracker = Depends(get_cost_tracker)
 ):
     """
     Track cost for user and tier.
@@ -245,25 +252,25 @@ async def track_cost(
             user_id=cost_entry.user_id,
             tier=cost_entry.tier,
             cost=cost_entry.cost,
-            period=cost_entry.period
+            period=cost_entry.period,
         )
 
         return {
             "status": "tracked",
             "new_total": new_total,
             "user_id": cost_entry.user_id,
-            "period": cost_entry.period
+            "period": cost_entry.period,
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/spend/{user_id}", response_model=Dict[str, float])
 async def get_user_spend(
     user_id: str,
     periods: Optional[List[str]] = Query(default=["daily", "weekly", "monthly"]),
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
 ):
     """
     Get current spend for user across periods.
@@ -280,7 +287,7 @@ async def get_user_spend(
     """
     spend = {}
 
-    for period in periods:
+    for period in periods or []:
         cost_key = f"cost:{period}:user:{user_id}"
         spend[period] = float(await redis_client.get(cost_key) or 0)
 
@@ -289,9 +296,7 @@ async def get_user_spend(
 
 @router.delete("/spend/{user_id}/{period}", status_code=204)
 async def reset_user_spend(
-    user_id: str,
-    period: str,
-    redis_client: redis.Redis = Depends(get_redis)
+    user_id: str, period: str, redis_client: redis.Redis = Depends(get_redis)
 ):
     """
     Reset spend for user (admin operation).
@@ -306,7 +311,7 @@ async def reset_user_spend(
     alert_keys = [
         f"alert:{period}:{user_id}:80",
         f"alert:{period}:{user_id}:90",
-        f"alert:{period}:{user_id}:95"
+        f"alert:{period}:{user_id}:95",
     ]
 
     # Delete cost and alerts
@@ -317,11 +322,12 @@ async def reset_user_spend(
 # Analytics
 # ============================================================================
 
+
 @router.get("/top-spenders/{period}", response_model=List[TopSpender])
 async def get_top_spenders(
     period: str,
     limit: int = Query(default=10, ge=1, le=100),
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
 ):
     """
     Get top spenders for period.
@@ -338,9 +344,7 @@ async def get_top_spenders(
     # Scan all user cost keys
     while True:
         cursor, keys = await redis_client.scan(
-            cursor,
-            match=f"cost:{period}:user:*",
-            count=100
+            cursor, match=f"cost:{period}:user:*", count=100
         )
 
         for key in keys:
@@ -353,12 +357,14 @@ async def get_top_spenders(
 
             utilization = cost / user_limit if user_limit > 0 else None
 
-            spenders.append(TopSpender(
-                user_id=user_id,
-                cost=cost,
-                limit=user_limit if user_limit > 0 else None,
-                utilization=utilization
-            ))
+            spenders.append(
+                TopSpender(
+                    user_id=user_id,
+                    cost=cost,
+                    limit=user_limit if user_limit > 0 else None,
+                    utilization=utilization,
+                )
+            )
 
         if cursor == 0:
             break
@@ -371,8 +377,7 @@ async def get_top_spenders(
 
 @router.get("/utilization/{period}", response_model=UtilizationReport)
 async def get_utilization_report(
-    period: str,
-    redis_client: redis.Redis = Depends(get_redis)
+    period: str, redis_client: redis.Redis = Depends(get_redis)
 ):
     """
     Get budget utilization report for period.
@@ -385,22 +390,20 @@ async def get_utilization_report(
     if period not in ["daily", "weekly", "monthly"]:
         raise HTTPException(status_code=400, detail="Invalid period")
 
-    report = {
+    report: Dict[str, Any] = {
         "total_users": 0,
         "total_spend": 0.0,
         "users_over_80": 0,
         "users_over_90": 0,
         "users_over_95": 0,
-        "users_exceeded": 0
+        "users_exceeded": 0,
     }
 
     cursor = 0
 
     while True:
         cursor, keys = await redis_client.scan(
-            cursor,
-            match=f"cost:{period}:user:*",
-            count=100
+            cursor, match=f"cost:{period}:user:*", count=100
         )
 
         for key in keys:
@@ -431,18 +434,11 @@ async def get_utilization_report(
         if cursor == 0:
             break
 
-    return UtilizationReport(
-        period=period,
-        timestamp=datetime.utcnow(),
-        **report
-    )
+    return UtilizationReport(period=period, timestamp=datetime.utcnow(), **report)
 
 
 @router.get("/tier-costs/{period}", response_model=Dict[int, float])
-async def get_tier_costs(
-    period: str,
-    redis_client: redis.Redis = Depends(get_redis)
-):
+async def get_tier_costs(period: str, redis_client: redis.Redis = Depends(get_redis)):
     """
     Get total costs by tier for period.
 
@@ -474,6 +470,7 @@ async def get_tier_costs(
 # Health Check
 # ============================================================================
 
+
 @router.get("/health")
 async def health_check(redis_client: redis.Redis = Depends(get_redis)):
     """
@@ -486,10 +483,9 @@ async def health_check(redis_client: redis.Redis = Depends(get_redis)):
         return {
             "status": "healthy",
             "redis": "connected",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         raise HTTPException(
-            status_code=503,
-            detail=f"Budget API unhealthy: {str(e)}"
-        )
+            status_code=503, detail=f"Budget API unhealthy: {str(e)}"
+        ) from e

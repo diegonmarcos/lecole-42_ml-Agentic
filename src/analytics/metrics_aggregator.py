@@ -12,17 +12,17 @@ Aggregates LLM metrics for real-time analytics:
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import asyncpg
     import redis.asyncio as redis
 except ImportError:
-    asyncpg = None
-    redis = None
+    asyncpg = None  # type: ignore[assignment]
+    redis = None  # type: ignore[assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 class AggregationPeriod(Enum):
     """Aggregation time periods"""
+
     ONE_MINUTE = "1 minute"
     FIVE_MINUTES = "5 minutes"
     ONE_HOUR = "1 hour"
@@ -39,6 +40,7 @@ class AggregationPeriod(Enum):
 @dataclass
 class MetricSnapshot:
     """Point-in-time metric snapshot"""
+
     timestamp: datetime
     invocations: int
     successes: int
@@ -80,11 +82,7 @@ class PerformanceMetricsAggregator:
         hourly = await aggregator.get_hourly_aggregates(days=7)
     """
 
-    def __init__(
-        self,
-        redis_client: redis.Redis,
-        db_pool: asyncpg.Pool
-    ):
+    def __init__(self, redis_client: redis.Redis, db_pool: asyncpg.Pool):
         """
         Initialize metrics aggregator.
 
@@ -196,26 +194,26 @@ class PerformanceMetricsAggregator:
                 await self.db.execute(policy_1min)
                 await self.db.execute(policy_1hour)
                 await self.db.execute(policy_1day)
-            except Exception as e:
-                logger.debug(f"Refresh policies may already exist: {e}")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.debug("Refresh policies may already exist: %s", e)
 
             logger.info("TimescaleDB continuous aggregates created successfully")
 
         except Exception as e:
-            logger.error(f"Failed to create continuous aggregates: {e}")
+            logger.error("Failed to create continuous aggregates: %s", e)
             raise
 
-    async def record_invocation(
+    async def record_invocation(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         provider: str,
         tier: str,
-        model: str,
+        model: str,  # pylint: disable=unused-argument  # not aggregated per model
         success: bool,
         cost: float,
         tokens: int,
         latency: float,
         user_id: str,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
     ):
         """
         Record LLM invocation for real-time aggregation.
@@ -273,11 +271,11 @@ class PerformanceMetricsAggregator:
 
             await pipe.execute()
 
-    async def get_realtime_metrics(
+    async def get_realtime_metrics(  # pylint: disable=too-many-locals
         self,
         minutes: int = 5,
         provider: Optional[str] = None,
-        tier: Optional[str] = None
+        tier: Optional[str] = None,
     ) -> MetricSnapshot:
         """
         Get real-time metrics from Redis (last N minutes).
@@ -326,7 +324,9 @@ class PerformanceMetricsAggregator:
 
             # Get latencies for percentile calculation
             latency_key = f"{minute_key}:latencies"
-            minute_latencies = await self.redis.zrange(latency_key, 0, -1, withscores=True)
+            minute_latencies = await self.redis.zrange(
+                latency_key, 0, -1, withscores=True
+            )
             latencies.extend([float(score) for _, score in minute_latencies])
 
             # Get unique users HLL
@@ -344,8 +344,12 @@ class PerformanceMetricsAggregator:
             latencies.sort()
             p95_idx = int(len(latencies) * 0.95)
             p99_idx = int(len(latencies) * 0.99)
-            p95_latency = latencies[p95_idx] if p95_idx < len(latencies) else latencies[-1]
-            p99_latency = latencies[p99_idx] if p99_idx < len(latencies) else latencies[-1]
+            p95_latency = (
+                latencies[p95_idx] if p95_idx < len(latencies) else latencies[-1]
+            )
+            p99_latency = (
+                latencies[p99_idx] if p99_idx < len(latencies) else latencies[-1]
+            )
         else:
             p95_latency = 0.0
             p99_latency = 0.0
@@ -369,14 +373,11 @@ class PerformanceMetricsAggregator:
             avg_latency=avg_latency,
             p95_latency=p95_latency,
             p99_latency=p99_latency,
-            unique_users=unique_users
+            unique_users=unique_users,
         )
 
     async def get_hourly_aggregates(
-        self,
-        days: int = 7,
-        provider: Optional[str] = None,
-        tier: Optional[str] = None
+        self, days: int = 7, provider: Optional[str] = None, tier: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get hourly aggregates from TimescaleDB materialized view.
@@ -408,7 +409,7 @@ class PerformanceMetricsAggregator:
         WHERE bucket >= $1
         """
 
-        params = [start_time]
+        params: List[Any] = [start_time]
 
         if provider:
             query += " AND provider = $2"
@@ -430,20 +431,20 @@ class PerformanceMetricsAggregator:
                 "invocations": row["invocations"],
                 "successes": row["successes"],
                 "failures": row["failures"],
-                "success_rate": row["successes"] / row["invocations"] if row["invocations"] > 0 else 0.0,
+                "success_rate": row["successes"] / row["invocations"]
+                if row["invocations"] > 0
+                else 0.0,
                 "total_cost": float(row["total_cost"]),
                 "total_tokens": row["total_tokens"],
                 "avg_latency": float(row["avg_latency"]),
                 "p95_latency": float(row["p95_latency"]),
-                "p99_latency": float(row["p99_latency"])
+                "p99_latency": float(row["p99_latency"]),
             }
             for row in rows
         ]
 
     async def get_daily_aggregates(
-        self,
-        days: int = 30,
-        provider: Optional[str] = None
+        self, days: int = 30, provider: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get daily aggregates from TimescaleDB materialized view.
@@ -474,7 +475,7 @@ class PerformanceMetricsAggregator:
         WHERE bucket >= $1
         """
 
-        params = [start_time]
+        params: List[Any] = [start_time]
 
         if provider:
             query += " AND provider = $2"
@@ -492,20 +493,20 @@ class PerformanceMetricsAggregator:
                 "invocations": row["invocations"],
                 "successes": row["successes"],
                 "failures": row["failures"],
-                "success_rate": row["successes"] / row["invocations"] if row["invocations"] > 0 else 0.0,
+                "success_rate": row["successes"] / row["invocations"]
+                if row["invocations"] > 0
+                else 0.0,
                 "total_cost": float(row["total_cost"]),
                 "total_tokens": row["total_tokens"],
                 "avg_latency": float(row["avg_latency"]),
                 "p95_latency": float(row["p95_latency"]),
-                "p99_latency": float(row["p99_latency"])
+                "p99_latency": float(row["p99_latency"]),
             }
             for row in rows
         ]
 
     async def get_top_spenders(
-        self,
-        period: AggregationPeriod = AggregationPeriod.ONE_DAY,
-        limit: int = 10
+        self, period: AggregationPeriod = AggregationPeriod.ONE_DAY, limit: int = 10
     ) -> List[Tuple[str, float]]:
         """
         Get top spending providers for a period.
@@ -547,7 +548,7 @@ class PerformanceMetricsAggregator:
         now = datetime.utcnow()
         start = now - timedelta(minutes=5)
 
-        provider_costs = {}
+        provider_costs: Dict[str, float] = {}
 
         current = start.replace(second=0, microsecond=0)
         while current <= now:
@@ -567,7 +568,9 @@ class PerformanceMetricsAggregator:
                     cost = await self.redis.hget(key, "total_cost")
 
                     if cost:
-                        provider_costs[provider] = provider_costs.get(provider, 0.0) + float(cost)
+                        provider_costs[provider] = provider_costs.get(
+                            provider, 0.0
+                        ) + float(cost)
 
                 if cursor == 0:
                     break
@@ -575,30 +578,39 @@ class PerformanceMetricsAggregator:
             current += timedelta(minutes=1)
 
         # Sort and limit
-        sorted_providers = sorted(provider_costs.items(), key=lambda x: x[1], reverse=True)
+        sorted_providers = sorted(
+            provider_costs.items(), key=lambda x: x[1], reverse=True
+        )
 
         return sorted_providers[:limit]
 
     async def refresh_materialized_views(self):
         """Manually refresh all materialized views (for testing/admin)"""
-        await self.db.execute("CALL refresh_continuous_aggregate('llm_metrics_1min', NULL, NULL)")
-        await self.db.execute("CALL refresh_continuous_aggregate('llm_metrics_1hour', NULL, NULL)")
-        await self.db.execute("CALL refresh_continuous_aggregate('llm_metrics_1day', NULL, NULL)")
+        await self.db.execute(
+            "CALL refresh_continuous_aggregate('llm_metrics_1min', NULL, NULL)"
+        )
+        await self.db.execute(
+            "CALL refresh_continuous_aggregate('llm_metrics_1hour', NULL, NULL)"
+        )
+        await self.db.execute(
+            "CALL refresh_continuous_aggregate('llm_metrics_1day', NULL, NULL)"
+        )
 
         logger.info("Materialized views refreshed")
 
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
         # Initialize
-        redis_client = await redis.create_redis_pool("redis://localhost:6379")
+        redis_client = redis.from_url("redis://localhost:6379")
         db_pool = await asyncpg.create_pool(
             host="localhost",
             port=5432,
             database="llm_metrics",
             user="postgres",
-            password="postgres"
+            password="postgres",
         )
 
         aggregator = PerformanceMetricsAggregator(redis_client, db_pool)
@@ -616,12 +628,12 @@ if __name__ == "__main__":
                 cost=0.05,
                 tokens=1500,
                 latency=1.2,
-                user_id=f"user_{i % 10}"
+                user_id=f"user_{i % 10}",
             )
 
         # Get real-time metrics (last 5 minutes)
         realtime = await aggregator.get_realtime_metrics(minutes=5)
-        print(f"\nReal-time metrics (last 5 min):")
+        print("\nReal-time metrics (last 5 min):")
         print(f"  Invocations: {realtime.invocations}")
         print(f"  Success rate: {realtime.successes / realtime.invocations:.1%}")
         print(f"  Total cost: ${realtime.total_cost:.2f}")
@@ -634,8 +646,10 @@ if __name__ == "__main__":
         print(f"\nHourly aggregates (last 7 days): {len(hourly)} records")
 
         # Get top spenders
-        top_spenders = await aggregator.get_top_spenders(period=AggregationPeriod.ONE_DAY)
-        print(f"\nTop spenders (last 24h):")
+        top_spenders = await aggregator.get_top_spenders(
+            period=AggregationPeriod.ONE_DAY
+        )
+        print("\nTop spenders (last 24h):")
         for provider, cost in top_spenders:
             print(f"  {provider}: ${cost:.2f}")
 

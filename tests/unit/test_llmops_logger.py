@@ -4,20 +4,17 @@ Unit tests for LLMOps Logger
 Run with: pytest tests/unit/test_llmops_logger.py -v
 """
 
-import pytest
-import asyncio
-from uuid import uuid4
-from unittest.mock import AsyncMock, MagicMock, patch
-import sys
-sys.path.insert(0, '/home/user/ml-Agentic/src')
+from unittest.mock import AsyncMock, MagicMock
 
-from llmops.logger import LLMOpsLogger, LLMOpsMetrics
+import pytest
+
+from src.llmops.logger import LLMOpsLogger, LLMOpsMetrics
 
 
 @pytest.fixture
 def mock_db_pool():
-    """Mock asyncpg connection pool"""
-    pool = AsyncMock()
+    """Mock asyncpg connection pool (acquire() is sync, returns an async CM)"""
+    pool = MagicMock()
     conn = AsyncMock()
     pool.acquire.return_value.__aenter__.return_value = conn
     return pool
@@ -38,7 +35,7 @@ async def test_log_invocation_success(mock_db_pool):
         latency_ms=450,
         success=True,
         task_type="test",
-        provider="fireworks"
+        provider="fireworks",
     )
 
     # Verify flush was called
@@ -99,7 +96,7 @@ async def test_metrics_cost_by_tier(mock_db_pool):
     conn.fetch.return_value = [
         {"tier": 0, "total_cost": 0.0},
         {"tier": 1, "total_cost": 12.34},
-        {"tier": 3, "total_cost": 45.67}
+        {"tier": 3, "total_cost": 45.67},
     ]
 
     metrics = LLMOpsMetrics(mock_db_pool)
@@ -143,7 +140,7 @@ async def test_optimal_tier_recommendation(mock_db_pool):
         "success_rate": 95.5,
         "avg_cost": 0.000074,
         "avg_latency_ms": 450,
-        "sample_size": 1000
+        "sample_size": 1000,
     }
 
     metrics = LLMOpsMetrics(mock_db_pool)

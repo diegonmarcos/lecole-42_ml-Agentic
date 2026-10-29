@@ -1,13 +1,14 @@
 """Provider abstraction layer for LLM services"""
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, AsyncIterator
 from dataclasses import dataclass
+from typing import AsyncIterator, Dict, List, Optional
 
 
 @dataclass
 class LLMResponse:
     """Standard LLM response format"""
+
     content: str
     usage: Dict[str, int]  # {'prompt_tokens': int, 'completion_tokens': int}
     model: str
@@ -28,24 +29,19 @@ class LLMProvider(ABC):
         **kwargs
     ) -> LLMResponse:
         """Generate chat completion"""
-        pass
 
     @abstractmethod
     async def health_check(self) -> bool:
         """Check if provider is healthy"""
-        pass
 
     @abstractmethod
     def get_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Calculate cost in USD"""
-        pass
 
     @abstractmethod
     async def stream_completion(
-        self,
-        model: str,
-        messages: List[Dict[str, str]],
-        **kwargs
+        self, model: str, messages: List[Dict[str, str]], **kwargs
     ) -> AsyncIterator[str]:
         """Stream completion chunks"""
-        pass
+        raise NotImplementedError
+        yield ""

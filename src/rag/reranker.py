@@ -13,12 +13,12 @@ Benefits:
 Performance: ~10-50ms per query depending on model and result count
 """
 
-import numpy as np
 import logging
-from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
-from sentence_transformers import CrossEncoder
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RerankResult:
     """Reranked search result"""
+
     doc_id: str
     text: str
     original_score: float
@@ -51,10 +52,10 @@ class Reranker:
 
     # Recommended models by use case
     MODELS = {
-        "fast": "cross-encoder/ms-marco-MiniLM-L-2-v2",        # 33M params, ~10ms
-        "balanced": "cross-encoder/ms-marco-MiniLM-L-6-v2",    # 33M params, ~20ms
-        "accurate": "cross-encoder/ms-marco-TinyBERT-L-6",     # 68M params, ~30ms
-        "multilingual": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # 118M params
+        "fast": "cross-encoder/ms-marco-MiniLM-L-2-v2",  # 33M params, ~10ms
+        "balanced": "cross-encoder/ms-marco-MiniLM-L-6-v2",  # 33M params, ~20ms
+        "accurate": "cross-encoder/ms-marco-TinyBERT-L-6",  # 68M params, ~30ms
+        "multilingual": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",  # 118M params
     }
 
     def __init__(
@@ -62,7 +63,7 @@ class Reranker:
         model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         max_length: int = 512,
         batch_size: int = 32,
-        device: Optional[str] = None
+        device: Optional[str] = None,
     ):
         """
         Initialize reranker.
@@ -78,20 +79,12 @@ class Reranker:
         self.batch_size = batch_size
 
         # Load cross-encoder
-        logger.info(f"Loading cross-encoder: {model}")
-        self.model = CrossEncoder(
-            model,
-            max_length=max_length,
-            device=device
-        )
+        logger.info("Loading cross-encoder: %s", model)
+        self.model = CrossEncoder(model, max_length=max_length, device=device)
 
-        logger.info(f"Reranker ready (device: {self.model.device})")
+        logger.info("Reranker ready (device: %s)", self.model.device)
 
-    def _create_pairs(
-        self,
-        query: str,
-        results: List[Dict]
-    ) -> List[Tuple[str, str]]:
+    def _create_pairs(self, query: str, results: List[Dict]) -> List[Tuple[str, str]]:
         """
         Create query-document pairs for scoring.
 
@@ -107,7 +100,7 @@ class Reranker:
         for result in results:
             doc_text = result.get("text", "")
             if not doc_text:
-                logger.warning(f"Empty text for result: {result.get('id', 'unknown')}")
+                logger.warning("Empty text for result: %s", result.get("id", "unknown"))
                 doc_text = ""
 
             pairs.append((query, doc_text))
@@ -120,7 +113,7 @@ class Reranker:
         results: List[Dict],
         top_k: Optional[int] = None,
         combine_scores: bool = True,
-        alpha: float = 0.7
+        alpha: float = 0.7,
     ) -> List[RerankResult]:
         """
         Rerank search results using cross-encoder.
@@ -144,12 +137,10 @@ class Reranker:
         # Score pairs with cross-encoder
         try:
             rerank_scores = self.model.predict(
-                pairs,
-                batch_size=self.batch_size,
-                show_progress_bar=False
+                pairs, batch_size=self.batch_size, show_progress_bar=False
             )
-        except Exception as e:
-            logger.error(f"Reranking failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Reranking failed: %s", e)
             # Fallback: return original results
             return [
                 RerankResult(
@@ -158,7 +149,7 @@ class Reranker:
                     original_score=r.get("score", 0.0),
                     rerank_score=0.0,
                     final_score=r.get("score", 0.0),
-                    metadata=r.get("metadata")
+                    metadata=r.get("metadata"),
                 )
                 for i, r in enumerate(results)
             ]
@@ -187,14 +178,16 @@ class Reranker:
             else:
                 final_score = rerank_score
 
-            reranked_results.append(RerankResult(
-                doc_id=result.get("id", f"doc_{i}"),
-                text=result.get("text", ""),
-                original_score=original_score,
-                rerank_score=rerank_score,
-                final_score=final_score,
-                metadata=result.get("metadata")
-            ))
+            reranked_results.append(
+                RerankResult(
+                    doc_id=result.get("id", f"doc_{i}"),
+                    text=result.get("text", ""),
+                    original_score=original_score,
+                    rerank_score=rerank_score,
+                    final_score=final_score,
+                    metadata=result.get("metadata"),
+                )
+            )
 
         # Sort by final score (descending)
         reranked_results.sort(key=lambda x: x.final_score, reverse=True)
@@ -224,7 +217,7 @@ class Reranker:
         queries: List[str],
         results_per_query: List[List[Dict]],
         top_k: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> List[List[RerankResult]]:
         """
         Rerank results for multiple queries in batch.
@@ -280,7 +273,7 @@ class RerankerEnsemble:
         query: str,
         results: List[Dict],
         top_k: Optional[int] = None,
-        voting_strategy: str = "average"
+        voting_strategy: str = "average",
     ) -> List[RerankResult]:
         """
         Rerank using ensemble of models.
@@ -302,7 +295,7 @@ class RerankerEnsemble:
                 query,
                 results,
                 top_k=None,  # Don't filter yet
-                combine_scores=False  # Use rerank score only
+                combine_scores=False,  # Use rerank score only
             )
             all_reranked.append(reranked)
 
@@ -328,14 +321,16 @@ class RerankerEnsemble:
             else:
                 raise ValueError(f"Unknown voting strategy: {voting_strategy}")
 
-            combined_results.append(RerankResult(
-                doc_id=doc_id,
-                text=result.get("text", ""),
-                original_score=result.get("score", 0.0),
-                rerank_score=float(final_score),
-                final_score=float(final_score),
-                metadata=result.get("metadata")
-            ))
+            combined_results.append(
+                RerankResult(
+                    doc_id=doc_id,
+                    text=result.get("text", ""),
+                    original_score=result.get("score", 0.0),
+                    rerank_score=float(final_score),
+                    final_score=float(final_score),
+                    metadata=result.get("metadata"),
+                )
+            )
 
         # Sort by final score
         combined_results.sort(key=lambda x: x.final_score, reverse=True)
@@ -348,7 +343,8 @@ class RerankerEnsemble:
 
 
 # Example usage
-if __name__ == "__main__":
+def _demo() -> None:
+    """Run a small demonstration of this module."""
     # Create reranker
     reranker = Reranker(model="cross-encoder/ms-marco-MiniLM-L-6-v2")
 
@@ -359,32 +355,28 @@ if __name__ == "__main__":
         {
             "id": "doc1",
             "text": "Machine learning is a subset of AI that enables computers to learn from data.",
-            "score": 0.75
+            "score": 0.75,
         },
         {
             "id": "doc2",
             "text": "Deep learning uses neural networks with multiple layers.",
-            "score": 0.68
+            "score": 0.68,
         },
         {
             "id": "doc3",
             "text": "Python is a popular programming language for data science.",
-            "score": 0.62
+            "score": 0.62,
         },
         {
             "id": "doc4",
             "text": "Machine learning algorithms can be supervised or unsupervised.",
-            "score": 0.58
-        }
+            "score": 0.58,
+        },
     ]
 
     # Rerank results
     reranked = reranker.rerank(
-        query=query,
-        results=results,
-        top_k=3,
-        combine_scores=True,
-        alpha=0.7
+        query=query, results=results, top_k=3, combine_scores=True, alpha=0.7
     )
 
     print(f"Reranked top 3 results for: '{query}'\n")
@@ -395,3 +387,7 @@ if __name__ == "__main__":
         print(f"   Final:    {result.final_score:.3f}")
         print(f"   Text:     {result.text[:60]}...")
         print()
+
+
+if __name__ == "__main__":
+    _demo()

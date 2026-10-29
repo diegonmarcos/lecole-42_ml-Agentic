@@ -9,18 +9,19 @@ Based on Dify and Flowise patterns for tool management.
 
 import asyncio
 import inspect
+import json
 import logging
-from typing import Dict, List, Optional, Any, Callable, Union
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-import json
-
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ToolType(Enum):
     """Tool types"""
+
     PYTHON_FUNCTION = "python_function"
     MCP_TOOL = "mcp_tool"
     API_ENDPOINT = "api_endpoint"
@@ -31,6 +32,7 @@ class ToolType(Enum):
 @dataclass
 class ToolParameter:
     """Tool parameter definition"""
+
     name: str
     type: str  # string, integer, boolean, array, object
     description: str
@@ -42,6 +44,7 @@ class ToolParameter:
 @dataclass
 class Tool:
     """Tool definition"""
+
     name: str
     description: str
     tool_type: ToolType
@@ -57,6 +60,7 @@ class Tool:
 @dataclass
 class ToolResult:
     """Result from tool execution"""
+
     success: bool
     output: Any
     error: Optional[str] = None
@@ -99,7 +103,7 @@ class ToolRegistry:
         category: str = "general",
         requires_auth: bool = False,
         rate_limit: Optional[int] = None,
-        timeout: int = 30
+        timeout: int = 30,
     ):
         """
         Decorator to register a Python function as a tool.
@@ -120,6 +124,7 @@ class ToolRegistry:
                 # Implementation
                 pass
         """
+
         def decorator(func: Callable) -> Callable:
             # Extract parameters from function signature
             sig = inspect.signature(func)
@@ -138,18 +143,22 @@ class ToolRegistry:
                         param_type = "boolean"
                     elif annotation == float:
                         param_type = "number"
-                    elif annotation == list or annotation == List:
+                    elif annotation in (list, List):
                         param_type = "array"
-                    elif annotation == dict or annotation == Dict:
+                    elif annotation in (dict, Dict):
                         param_type = "object"
 
-                parameters.append(ToolParameter(
-                    name=param_name,
-                    type=param_type,
-                    description=f"Parameter: {param_name}",
-                    required=param_required,
-                    default=param.default if param.default != inspect.Parameter.empty else None
-                ))
+                parameters.append(
+                    ToolParameter(
+                        name=param_name,
+                        type=param_type,
+                        description=f"Parameter: {param_name}",
+                        required=param_required,
+                        default=param.default
+                        if param.default != inspect.Parameter.empty
+                        else None,
+                    )
+                )
 
             # Register tool
             tool = Tool(
@@ -161,11 +170,11 @@ class ToolRegistry:
                 category=category,
                 requires_auth=requires_auth,
                 rate_limit=rate_limit,
-                timeout=timeout
+                timeout=timeout,
             )
 
             self.tools[func.__name__] = tool
-            logger.info(f"Registered tool: {func.__name__} ({category})")
+            logger.info("Registered tool: %s (%s)", func.__name__, category)
 
             return func
 
@@ -179,7 +188,7 @@ class ToolRegistry:
             tool: Tool instance
         """
         self.tools[tool.name] = tool
-        logger.info(f"Registered tool: {tool.name} ({tool.category})")
+        logger.info("Registered tool: %s (%s)", tool.name, tool.category)
 
     def unregister(self, name: str):
         """
@@ -190,7 +199,7 @@ class ToolRegistry:
         """
         if name in self.tools:
             del self.tools[name]
-            logger.info(f"Unregistered tool: {name}")
+            logger.info("Unregistered tool: %s", name)
 
     def get_tool(self, name: str) -> Optional[Tool]:
         """
@@ -205,9 +214,7 @@ class ToolRegistry:
         return self.tools.get(name)
 
     def list_tools(
-        self,
-        category: Optional[str] = None,
-        tool_type: Optional[ToolType] = None
+        self, category: Optional[str] = None, tool_type: Optional[ToolType] = None
     ) -> List[Tool]:
         """
         List available tools.
@@ -243,13 +250,13 @@ class ToolRegistry:
         if not tool:
             return None
 
-        properties = {}
-        required = []
+        properties: Dict[str, Any] = {}
+        required: List[str] = []
 
         for param in tool.parameters:
-            prop = {
+            prop: Dict[str, Any] = {
                 "type": param.type,
-                "description": param.description
+                "description": param.description,
             }
 
             if param.enum:
@@ -269,8 +276,8 @@ class ToolRegistry:
             "parameters": {
                 "type": "object",
                 "properties": properties,
-                "required": required
-            }
+                "required": required,
+            },
         }
 
     def get_all_schemas(self) -> List[Dict[str, Any]]:
@@ -280,16 +287,14 @@ class ToolRegistry:
         Returns:
             List of tool schemas
         """
-        return [
-            self.get_tool_schema(name)
-            for name in self.tools.keys()
-        ]
+        schemas = [self.get_tool_schema(name) for name in self.tools]
+        return [schema for schema in schemas if schema is not None]
 
-    async def execute(
+    async def execute(  # pylint: disable=unused-argument
         self,
         name: str,
         parameters: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
     ) -> ToolResult:
         """
         Execute a tool.
@@ -302,7 +307,6 @@ class ToolRegistry:
         Returns:
             ToolResult with output
         """
-        import time
 
         start_time = time.time()
 
@@ -310,9 +314,7 @@ class ToolRegistry:
         tool = self.get_tool(name)
         if not tool:
             return ToolResult(
-                success=False,
-                output=None,
-                error=f"Tool not found: {name}"
+                success=False, output=None, error=f"Tool not found: {name}"
             )
 
         # Check rate limit
@@ -325,7 +327,7 @@ class ToolRegistry:
                     success=False,
                     output=None,
                     error=f"Rate limit exceeded for {name}",
-                    execution_time=time.time() - start_time
+                    execution_time=time.time() - start_time,
                 )
 
         # Validate parameters
@@ -335,7 +337,7 @@ class ToolRegistry:
                     success=False,
                     output=None,
                     error=f"Missing required parameter: {param.name}",
-                    execution_time=time.time() - start_time
+                    execution_time=time.time() - start_time,
                 )
 
         # Execute tool
@@ -343,8 +345,7 @@ class ToolRegistry:
             # Check if handler is async
             if asyncio.iscoroutinefunction(tool.handler):
                 output = await asyncio.wait_for(
-                    tool.handler(**parameters),
-                    timeout=tool.timeout
+                    tool.handler(**parameters), timeout=tool.timeout
                 )
             else:
                 output = tool.handler(**parameters)
@@ -357,9 +358,7 @@ class ToolRegistry:
                 success=True,
                 output=output,
                 execution_time=time.time() - start_time,
-                metadata={
-                    "execution_count": self._execution_counts[name]
-                }
+                metadata={"execution_count": self._execution_counts[name]},
             )
 
         except asyncio.TimeoutError:
@@ -367,16 +366,16 @@ class ToolRegistry:
                 success=False,
                 output=None,
                 error=f"Tool execution timeout ({tool.timeout}s)",
-                execution_time=time.time() - start_time
+                execution_time=time.time() - start_time,
             )
 
-        except Exception as e:
-            logger.error(f"Tool execution error ({name}): {e}", exc_info=True)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Tool execution error (%s): %s", name, e, exc_info=True)
             return ToolResult(
                 success=False,
                 output=None,
                 error=str(e),
-                execution_time=time.time() - start_time
+                execution_time=time.time() - start_time,
             )
 
     def get_stats(self) -> Dict[str, Any]:
@@ -389,15 +388,15 @@ class ToolRegistry:
         return {
             "total_tools": len(self.tools),
             "tools_by_category": {
-                category: len([t for t in self.tools.values() if t.category == category])
+                category: len(
+                    [t for t in self.tools.values() if t.category == category]
+                )
                 for category in set(t.category for t in self.tools.values())
             },
             "execution_counts": dict(self._execution_counts),
             "most_used": sorted(
-                self._execution_counts.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:10]
+                self._execution_counts.items(), key=lambda x: x[1], reverse=True
+            )[:10],
         }
 
 
@@ -412,13 +411,13 @@ def get_registry() -> ToolRegistry:
 
 # Example tools
 if __name__ == "__main__":
+
     async def main():
         registry = ToolRegistry()
 
         # Register some example tools
         @registry.register_function(
-            description="Add two numbers together",
-            category="math"
+            description="Add two numbers together", category="math"
         )
         async def add(a: int, b: int) -> int:
             """Add two numbers"""
@@ -428,7 +427,7 @@ if __name__ == "__main__":
         @registry.register_function(
             description="Search for items",
             category="search",
-            rate_limit=10  # 10 calls per minute
+            rate_limit=10,  # 10 calls per minute
         )
         async def search(query: str, max_results: int = 10) -> List[str]:
             """Search for items"""
@@ -441,7 +440,7 @@ if __name__ == "__main__":
             print(f"  - {tool.name}: {tool.description}")
 
         # Get schema
-        print(f"\nTool schema for 'add':")
+        print("\nTool schema for 'add':")
         print(json.dumps(registry.get_tool_schema("add"), indent=2))
 
         # Execute tools
@@ -449,12 +448,12 @@ if __name__ == "__main__":
         print(f"\nadd(5, 3) = {result1.output} (took {result1.execution_time:.3f}s)")
 
         result2 = await registry.execute("search", {"query": "test", "max_results": 3})
-        print(f"\nsearch('test', 3):")
+        print("\nsearch('test', 3):")
         for item in result2.output:
             print(f"  - {item}")
 
         # Stats
-        print(f"\nRegistry stats:")
+        print("\nRegistry stats:")
         stats = registry.get_stats()
         print(f"  Total tools: {stats['total_tools']}")
         print(f"  Most used: {stats['most_used']}")

@@ -7,11 +7,11 @@ Analyzes code quality, security, and best practices.
 
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict
 
-from .base_agent import BaseAgent
 from src.providers.router import Tier
 
+from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class ReviewerAgent(BaseAgent):
         if not code:
             return {"error": "No code provided"}
 
-        logger.info(f"Reviewing code ({len(code)} chars)")
+        logger.info("Reviewing code (%s chars)", len(code))
 
         # Use code workbench tools for analysis
         parse_result = await self.use_tool("parse_python", {"code": code})
@@ -55,7 +55,8 @@ class ReviewerAgent(BaseAgent):
         dependencies = await self.use_tool("find_dependencies", {"code": code})
 
         # Build review prompt
-        review_prompt = f"""Review the following Python code for quality, security, and best practices:
+        review_prompt = f"""Review the following Python code for quality, security, and \
+best practices:
 
 Code:
 ```python
@@ -93,7 +94,7 @@ Review:"""
         response = await self.call_llm(
             messages=[{"role": "user", "content": review_prompt}],
             temperature=0.1,
-            max_tokens=1500
+            max_tokens=1500,
         )
 
         # Parse review
@@ -109,22 +110,23 @@ Review:"""
                 "analysis": {
                     "complexity": complexity,
                     "todo_count": len(todos) if todos else 0,
-                    "dependencies": dependencies
+                    "dependencies": dependencies,
                 },
-                "reviewer": self.agent_id
+                "reviewer": self.agent_id,
             }
 
         except json.JSONDecodeError:
-            logger.error(f"Failed to parse review: {response}")
+            logger.error("Failed to parse review: %s", response)
             return {
                 "status": "error",
                 "error": "Failed to parse review",
-                "raw_response": response
+                "raw_response": response,
             }
 
     def get_system_prompt(self) -> str:
         """Get reviewer system prompt"""
-        return """You are an expert code reviewer with deep knowledge of software engineering best practices.
+        return """You are an expert code reviewer with deep knowledge of software \
+engineering best practices.
 
 Your role:
 1. Analyze code for correctness, efficiency, and maintainability

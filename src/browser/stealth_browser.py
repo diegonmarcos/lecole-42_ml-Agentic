@@ -13,20 +13,25 @@ Based on browser-use patterns from production systems.
 import asyncio
 import logging
 import random
-import string
-from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Literal, Optional
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    Playwright,
+    async_playwright,
+)
 from playwright_stealth import stealth_async  # pip install playwright-stealth
-
 
 logger = logging.getLogger(__name__)
 
 
 class BrowserType(Enum):
     """Supported browser types"""
+
     CHROMIUM = "chromium"
     FIREFOX = "firefox"
     WEBKIT = "webkit"
@@ -35,6 +40,7 @@ class BrowserType(Enum):
 @dataclass
 class BrowserConfig:
     """Browser configuration"""
+
     browser_type: BrowserType = BrowserType.CHROMIUM
     headless: bool = True
     stealth_mode: bool = True
@@ -50,6 +56,7 @@ class BrowserConfig:
 @dataclass
 class NavigationResult:
     """Result of navigation action"""
+
     success: bool
     url: str
     title: str
@@ -74,7 +81,7 @@ class StealthBrowser:
         await browser.close()
     """
 
-    def __init__(self, config: BrowserConfig = None):
+    def __init__(self, config: Optional[BrowserConfig] = None):
         """
         Initialize stealth browser.
 
@@ -91,7 +98,11 @@ class StealthBrowser:
         """
         Start browser with stealth configuration.
         """
-        logger.info(f"Starting {self.config.browser_type.value} browser (stealth={self.config.stealth_mode})")
+        logger.info(
+            "Starting %s browser (stealth=%s)",
+            self.config.browser_type.value,
+            self.config.stealth_mode,
+        )
 
         # Launch Playwright
         self.playwright = await async_playwright().start()
@@ -129,7 +140,7 @@ class StealthBrowser:
         context_args = {
             "viewport": {
                 "width": self.config.viewport_width,
-                "height": self.config.viewport_height
+                "height": self.config.viewport_height,
             },
             "locale": self.config.locale,
             "timezone_id": self.config.timezone,
@@ -155,7 +166,9 @@ class StealthBrowser:
         if self.config.stealth_mode:
             await stealth_async(self.page)
 
-        logger.info(f"Browser started: {await self.page.evaluate('navigator.userAgent')}")
+        logger.info(
+            "Browser started: %s", await self.page.evaluate("navigator.userAgent")
+        )
 
     def _generate_fingerprint(self) -> Dict[str, Any]:
         """
@@ -170,21 +183,15 @@ class StealthBrowser:
             (1366, 768),
             (1440, 900),
             (1536, 864),
-            (2560, 1440)
+            (2560, 1440),
         ]
         width, height = random.choice(resolutions)
-
-        # Randomize color depth
-        color_depth = random.choice([24, 32])
 
         # Randomize device scale factor
         device_scale_factor = random.choice([1, 1.25, 1.5, 2])
 
         return {
-            "screen": {
-                "width": width,
-                "height": height
-            },
+            "screen": {"width": width, "height": height},
             "color_scheme": random.choice(["light", "dark", "no-preference"]),
             "device_scale_factor": device_scale_factor,
             "is_mobile": False,
@@ -203,11 +210,11 @@ class StealthBrowser:
 
         # OS variations
         os_strings = [
-            f"Windows NT 10.0; Win64; x64",
-            f"Windows NT 11.0; Win64; x64",
-            f"Macintosh; Intel Mac OS X 10_15_7",
-            f"Macintosh; Intel Mac OS X 13_0_0",
-            f"X11; Linux x86_64",
+            "Windows NT 10.0; Win64; x64",
+            "Windows NT 11.0; Win64; x64",
+            "Macintosh; Intel Mac OS X 10_15_7",
+            "Macintosh; Intel Mac OS X 13_0_0",
+            "X11; Linux x86_64",
         ]
 
         os_string = random.choice(os_strings)
@@ -221,8 +228,10 @@ class StealthBrowser:
     async def navigate(
         self,
         url: str,
-        wait_until: str = "networkidle",
-        timeout: int = 30000
+        wait_until: Literal[
+            "commit", "domcontentloaded", "load", "networkidle"
+        ] = "networkidle",
+        timeout: int = 30000,
     ) -> NavigationResult:
         """
         Navigate to URL with error handling.
@@ -239,17 +248,18 @@ class StealthBrowser:
             raise RuntimeError("Browser not started. Call start() first.")
 
         try:
-            logger.info(f"Navigating to: {url}")
+            logger.info("Navigating to: %s", url)
 
             # Navigate
-            response = await self.page.goto(url, wait_until=wait_until, timeout=timeout)
+            await self.page.goto(url, wait_until=wait_until, timeout=timeout)
 
             # Get page info
             title = await self.page.title()
             final_url = self.page.url
 
             # Performance metrics
-            metrics = await self.page.evaluate("""
+            metrics = await self.page.evaluate(
+                """
                 () => {
                     const timing = performance.timing;
                     return {
@@ -258,25 +268,18 @@ class StealthBrowser:
                         responseTime: timing.responseEnd - timing.requestStart
                     };
                 }
-            """)
-
-            logger.info(f"Navigation successful: {title} ({metrics['loadTime']}ms)")
-
-            return NavigationResult(
-                success=True,
-                url=final_url,
-                title=title,
-                metrics=metrics
+            """
             )
 
-        except Exception as e:
-            logger.error(f"Navigation failed: {e}")
+            logger.info("Navigation successful: %s (%sms)", title, metrics["loadTime"])
+
             return NavigationResult(
-                success=False,
-                url=url,
-                title="",
-                error=str(e)
+                success=True, url=final_url, title=title, metrics=metrics
             )
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Navigation failed: %s", e)
+            return NavigationResult(success=False, url=url, title="", error=str(e))
 
     async def get_page_content(self) -> str:
         """
@@ -302,7 +305,9 @@ class StealthBrowser:
 
         return await self.page.evaluate("document.body.innerText")
 
-    async def screenshot(self, path: Optional[str] = None, full_page: bool = True) -> bytes:
+    async def screenshot(
+        self, path: Optional[str] = None, full_page: bool = True
+    ) -> bytes:
         """
         Take screenshot of current page.
 
@@ -317,7 +322,7 @@ class StealthBrowser:
             raise RuntimeError("Browser not started")
 
         screenshot_bytes = await self.page.screenshot(path=path, full_page=full_page)
-        logger.info(f"Screenshot taken: {len(screenshot_bytes)} bytes")
+        logger.info("Screenshot taken: %s bytes", len(screenshot_bytes))
 
         return screenshot_bytes
 
@@ -337,10 +342,10 @@ class StealthBrowser:
 
         try:
             await self.page.click(selector, timeout=timeout)
-            logger.info(f"Clicked: {selector}")
+            logger.info("Clicked: %s", selector)
             return True
-        except Exception as e:
-            logger.error(f"Click failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Click failed: %s", e)
             return False
 
     async def fill(self, selector: str, value: str, timeout: int = 30000) -> bool:
@@ -360,17 +365,17 @@ class StealthBrowser:
 
         try:
             await self.page.fill(selector, value, timeout=timeout)
-            logger.info(f"Filled: {selector}")
+            logger.info("Filled: %s", selector)
             return True
-        except Exception as e:
-            logger.error(f"Fill failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Fill failed: %s", e)
             return False
 
     async def wait_for_selector(
         self,
         selector: str,
-        state: str = "visible",
-        timeout: int = 30000
+        state: Literal["attached", "detached", "hidden", "visible"] = "visible",
+        timeout: int = 30000,
     ) -> bool:
         """
         Wait for element to appear.
@@ -388,10 +393,10 @@ class StealthBrowser:
 
         try:
             await self.page.wait_for_selector(selector, state=state, timeout=timeout)
-            logger.info(f"Element found: {selector}")
+            logger.info("Element found: %s", selector)
             return True
-        except Exception as e:
-            logger.error(f"Element not found: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Element not found: %s", e)
             return False
 
     async def evaluate(self, expression: str) -> Any:
@@ -430,12 +435,11 @@ class StealthBrowser:
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
         # Create browser with stealth
         config = BrowserConfig(
-            headless=True,
-            stealth_mode=True,
-            randomize_fingerprint=True
+            headless=True, stealth_mode=True, randomize_fingerprint=True
         )
 
         browser = StealthBrowser(config)

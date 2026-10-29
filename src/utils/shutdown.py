@@ -11,18 +11,18 @@ Handles graceful shutdown of all system components:
 """
 
 import asyncio
-import signal
 import logging
-from typing import List, Callable, Optional
+import signal
 from dataclasses import dataclass
 from enum import Enum
-
+from typing import Callable, List
 
 logger = logging.getLogger(__name__)
 
 
 class ShutdownPhase(Enum):
     """Shutdown phases"""
+
     STOP_ACCEPTING = "stop_accepting"  # Stop accepting new requests
     DRAIN_REQUESTS = "drain_requests"  # Wait for in-flight requests
     STOP_BACKGROUND = "stop_background"  # Stop background tasks
@@ -33,6 +33,7 @@ class ShutdownPhase(Enum):
 @dataclass
 class ShutdownHook:
     """Shutdown hook configuration"""
+
     name: str
     phase: ShutdownPhase
     callback: Callable
@@ -64,11 +65,7 @@ class GracefulShutdownManager:
         await shutdown_manager.shutdown()
     """
 
-    def __init__(
-        self,
-        shutdown_timeout: float = 60.0,
-        drain_timeout: float = 30.0
-    ):
+    def __init__(self, shutdown_timeout: float = 60.0, drain_timeout: float = 30.0):
         """
         Initialize shutdown manager.
 
@@ -88,7 +85,7 @@ class GracefulShutdownManager:
         phase: ShutdownPhase,
         callback: Callable,
         timeout: float = 30.0,
-        critical: bool = True
+        critical: bool = True,
     ):
         """
         Register shutdown hook.
@@ -105,19 +102,20 @@ class GracefulShutdownManager:
             phase=phase,
             callback=callback,
             timeout=timeout,
-            critical=critical
+            critical=critical,
         )
 
         self.hooks.append(hook)
 
-        logger.info(f"Registered shutdown hook: {name} (phase={phase.value})")
+        logger.info("Registered shutdown hook: %s (phase=%s)", name, phase.value)
 
     async def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
-        loop = asyncio.get_event_loop()
 
-        def signal_handler(signum, frame):
-            logger.warning(f"Received signal {signum}, initiating graceful shutdown...")
+        def signal_handler(signum, _frame):
+            logger.warning(
+                "Received signal %s, initiating graceful shutdown...", signum
+            )
             asyncio.create_task(self.shutdown())
 
         # Register signal handlers
@@ -145,8 +143,8 @@ class GracefulShutdownManager:
 
             logger.warning("Graceful shutdown completed successfully")
 
-        except Exception as e:
-            logger.error(f"Error during graceful shutdown: {e}", exc_info=True)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error during graceful shutdown: %s", e, exc_info=True)
 
         finally:
             self._shutdown_event.set()
@@ -158,7 +156,9 @@ class GracefulShutdownManager:
         if not phase_hooks:
             return
 
-        logger.warning(f"\n--- Phase: {phase.value.upper()} ({len(phase_hooks)} hooks) ---")
+        logger.warning(
+            "\n--- Phase: %s (%s hooks) ---", phase.value.upper(), len(phase_hooks)
+        )
 
         # Execute hooks in parallel
         tasks = []
@@ -170,15 +170,15 @@ class GracefulShutdownManager:
         try:
             await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
-                timeout=max(h.timeout for h in phase_hooks)
+                timeout=max(h.timeout for h in phase_hooks),
             )
 
         except asyncio.TimeoutError:
-            logger.error(f"Phase {phase.value} timed out")
+            logger.error("Phase %s timed out", phase.value)
 
     async def _execute_hook(self, hook: ShutdownHook):
         """Execute a single shutdown hook"""
-        logger.info(f"Executing: {hook.name}")
+        logger.info("Executing: %s", hook.name)
 
         try:
             # Execute with timeout
@@ -186,20 +186,19 @@ class GracefulShutdownManager:
                 await asyncio.wait_for(hook.callback(), timeout=hook.timeout)
             else:
                 await asyncio.wait_for(
-                    asyncio.to_thread(hook.callback),
-                    timeout=hook.timeout
+                    asyncio.to_thread(hook.callback), timeout=hook.timeout
                 )
 
-            logger.info(f"✓ {hook.name} completed")
+            logger.info("✓ %s completed", hook.name)
 
         except asyncio.TimeoutError:
-            logger.error(f"✗ {hook.name} timed out after {hook.timeout}s")
+            logger.error("✗ %s timed out after %ss", hook.name, hook.timeout)
 
             if hook.critical:
                 raise
 
-        except Exception as e:
-            logger.error(f"✗ {hook.name} failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("✗ %s failed: %s", hook.name, e)
 
             if hook.critical:
                 raise
@@ -210,7 +209,4 @@ class GracefulShutdownManager:
 
 
 # Global shutdown manager instance
-shutdown_manager = GracefulShutdownManager(
-    shutdown_timeout=60.0,
-    drain_timeout=30.0
-)
+shutdown_manager = GracefulShutdownManager(shutdown_timeout=60.0, drain_timeout=30.0)

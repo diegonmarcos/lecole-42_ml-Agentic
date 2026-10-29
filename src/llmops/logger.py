@@ -27,8 +27,9 @@ Usage:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
+
 import asyncpg
 
 logger = logging.getLogger(__name__)
@@ -55,11 +56,11 @@ class LLMOpsLogger:
         """
         self.db_pool = db_pool
         self.batch_size = batch_size
-        self._batch = []
+        self._batch: List[Dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._flush_task = None
 
-    async def log_invocation(
+    async def log_invocation(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         trace_id: Optional[UUID] = None,
         user_id: Optional[str] = None,
@@ -141,7 +142,7 @@ class LLMOpsLogger:
         Flush batch to database.
 
         This method is called automatically when batch is full.
-        Can also be called manually to force immediate persistence.
+        Callers must hold ``self._lock`` (log_invocation and flush_and_close do).
         """
         if not self._batch:
             return
@@ -179,13 +180,13 @@ class LLMOpsLogger:
                         for entry in batch
                     ],
                 )
-                logger.debug(f"Flushed {len(batch)} log entries to database")
+                logger.debug("Flushed %s log entries to database", len(batch))
 
-        except Exception as e:
-            logger.error(f"Failed to flush logs to database: {e}")
-            # Re-add to batch for retry
-            async with self._lock:
-                self._batch.extend(batch)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to flush logs to database: %s", e)
+            # Re-add to batch for retry (lock is already held by the caller;
+            # asyncio.Lock is not re-entrant, re-acquiring it would deadlock)
+            self._batch.extend(batch)
 
     async def flush_and_close(self) -> None:
         """
@@ -336,7 +337,8 @@ class LLMOpsMetrics:
                 SELECT
                     tier,
                     COUNT(*) as sample_size,
-                    (COUNT(*) FILTER (WHERE success) * 100.0 / COUNT(*))::DECIMAL(5,2) as success_rate,
+                    (COUNT(*) FILTER (WHERE success) * 100.0 / COUNT(*))::DECIMAL(5,2)
+                        as success_rate,
                     AVG(cost)::DECIMAL(10,6) as avg_cost,
                     AVG(latency_ms)::INTEGER as avg_latency_ms
                 FROM llm_invocations
@@ -364,7 +366,6 @@ class LLMOpsMetrics:
 
 # Example usage
 if __name__ == "__main__":
-    import asyncio
 
     async def example():
         # Create connection pool
@@ -377,10 +378,10 @@ if __name__ == "__main__":
         )
 
         # Initialize logger
-        logger = LLMOpsLogger(pool)
+        ops_logger = LLMOpsLogger(pool)
 
         # Log an invocation
-        await logger.log_invocation(
+        await ops_logger.log_invocation(
             user_id="user123",
             tier=1,
             model="llama-v3p1-8b-instruct",
@@ -395,7 +396,7 @@ if __name__ == "__main__":
         )
 
         # Flush remaining logs
-        await logger.flush_and_close()
+        await ops_logger.flush_and_close()
 
         # Get metrics
         metrics = LLMOpsMetrics(pool)

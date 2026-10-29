@@ -3,9 +3,6 @@ Integration tests for workflow versioning and A/B testing - TASK-035/036
 """
 
 import pytest
-import asyncio
-import json
-from datetime import datetime
 
 try:
     import redis.asyncio as redis
@@ -14,27 +11,19 @@ except ImportError:
 
 from src.workflows.versioning import (
     WorkflowVersionManager,
-    WorkflowVersion,
     VersionStatus,
-    VersionComparison
 )
 from src.workflows.ab_testing import (
     ABTestingManager,
-    ABExperiment,
     Variant,
     ExperimentStatus,
-    ExperimentMetrics
 )
 
 
 @pytest.fixture
 async def redis_client():
     """Redis client fixture"""
-    client = redis.Redis(
-        host="localhost",
-        port=6379,
-        decode_responses=True
-    )
+    client = redis.Redis(host="localhost", port=6379, decode_responses=True)
     yield client
     await client.close()
 
@@ -61,8 +50,8 @@ class TestWorkflowVersioning:
             "agents": ["planner", "coder"],
             "steps": [
                 {"agent": "planner", "action": "plan"},
-                {"agent": "coder", "action": "code"}
-            ]
+                {"agent": "coder", "action": "code"},
+            ],
         }
 
         version = await version_manager.create_version(
@@ -70,7 +59,7 @@ class TestWorkflowVersioning:
             version="1.0.0",
             workflow_data=workflow_data,
             author="test",
-            changelog="Initial version"
+            changelog="Initial version",
         )
 
         assert version.version == "1.0.0"
@@ -90,7 +79,7 @@ class TestWorkflowVersioning:
             version="1.0.0",
             workflow_data=workflow_data,
             author="test",
-            changelog="Test"
+            changelog="Test",
         )
 
         # Get version
@@ -112,7 +101,7 @@ class TestWorkflowVersioning:
             version="1.0.0",
             workflow_data=workflow_data_v1,
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         # Create v2.0.0 (sets as active)
@@ -122,7 +111,7 @@ class TestWorkflowVersioning:
             workflow_data=workflow_data_v2,
             author="test",
             changelog="v2",
-            set_active=True
+            set_active=True,
         )
 
         # Get active
@@ -145,7 +134,7 @@ class TestWorkflowVersioning:
                 workflow_data={"version": i},
                 author="test",
                 changelog=f"Version {i}",
-                set_active=(i == 2)  # Last one active
+                set_active=(i == 2),  # Last one active
             )
 
         # List versions
@@ -168,7 +157,7 @@ class TestWorkflowVersioning:
             version="1.0.0",
             workflow_data={"version": 1},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         # Create v2.0.0
@@ -178,7 +167,7 @@ class TestWorkflowVersioning:
             workflow_data={"version": 2},
             author="test",
             changelog="v2",
-            set_active=True
+            set_active=True,
         )
 
         # Verify v2 is active
@@ -201,40 +190,29 @@ class TestWorkflowVersioning:
         await version_manager.create_version(
             workflow_id=workflow_id,
             version="1.0.0",
-            workflow_data={
-                "agents": ["planner", "coder"],
-                "timeout": 30
-            },
+            workflow_data={"agents": ["planner", "coder"], "timeout": 30},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         # Create v2 (3 agents, different timeout)
         await version_manager.create_version(
             workflow_id=workflow_id,
             version="2.0.0",
-            workflow_data={
-                "agents": ["planner", "coder", "reviewer"],
-                "timeout": 60
-            },
+            workflow_data={"agents": ["planner", "coder", "reviewer"], "timeout": 60},
             author="test",
-            changelog="v2"
+            changelog="v2",
         )
 
         # Compare
         comparison = await version_manager.compare_versions(
-            workflow_id,
-            "1.0.0",
-            "2.0.0"
+            workflow_id, "1.0.0", "2.0.0"
         )
 
         assert len(comparison.changes) > 0
 
         # Check for agent list change
-        agent_changes = [
-            c for c in comparison.changes
-            if "agents" in c["path"]
-        ]
+        agent_changes = [c for c in comparison.changes if "agents" in c["path"]]
         assert len(agent_changes) > 0
 
     @pytest.mark.asyncio
@@ -244,7 +222,7 @@ class TestWorkflowVersioning:
 
         workflow_data = {
             "agents": ["planner", "coder"],
-            "steps": [{"agent": "planner"}]
+            "steps": [{"agent": "planner"}],
         }
 
         # Create v1
@@ -253,7 +231,7 @@ class TestWorkflowVersioning:
             version="1.0.0",
             workflow_data=workflow_data.copy(),
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         # Create v2 with identical data
@@ -262,7 +240,7 @@ class TestWorkflowVersioning:
             version="1.0.1",
             workflow_data=workflow_data.copy(),
             author="test",
-            changelog="v1.0.1"
+            changelog="v1.0.1",
         )
 
         # Checksums should match
@@ -278,7 +256,7 @@ class TestWorkflowVersioning:
             version="1.0.0",
             workflow_data={"agents": []},
             author="test",
-            changelog="test"
+            changelog="test",
         )
 
         # Deprecate
@@ -304,7 +282,7 @@ class TestABTesting:
             version="1.0.0",
             workflow_data={"model": "claude"},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -313,7 +291,7 @@ class TestABTesting:
             workflow_data={"model": "gpt4"},
             author="test",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         # Create experiment
@@ -326,15 +304,15 @@ class TestABTesting:
                     variant_id="control",
                     workflow_version="1.0.0",
                     traffic_weight=0.5,
-                    description="Claude"
+                    description="Claude",
                 ),
                 Variant(
                     variant_id="test",
                     workflow_version="2.0.0",
                     traffic_weight=0.5,
-                    description="GPT-4"
-                )
-            ]
+                    description="GPT-4",
+                ),
+            ],
         )
 
         assert experiment.experiment_id is not None
@@ -352,7 +330,7 @@ class TestABTesting:
             version="1.0.0",
             workflow_data={},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -361,7 +339,7 @@ class TestABTesting:
             workflow_data={},
             author="test",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         # Create experiment
@@ -371,8 +349,8 @@ class TestABTesting:
             description="Test",
             variants=[
                 Variant("control", "1.0.0", 0.5, "control"),
-                Variant("test", "2.0.0", 0.5, "test")
-            ]
+                Variant("test", "2.0.0", 0.5, "test"),
+            ],
         )
 
         # Start
@@ -394,7 +372,7 @@ class TestABTesting:
             version="1.0.0",
             workflow_data={},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -403,7 +381,7 @@ class TestABTesting:
             workflow_data={},
             author="test",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         # Create and start experiment
@@ -413,16 +391,15 @@ class TestABTesting:
             description="Test",
             variants=[
                 Variant("control", "1.0.0", 0.5, "control"),
-                Variant("test", "2.0.0", 0.5, "test")
-            ]
+                Variant("test", "2.0.0", 0.5, "test"),
+            ],
         )
 
         await ab_manager.start_experiment(experiment.experiment_id)
 
         # Assign variant
         variant = await ab_manager.assign_variant(
-            experiment.experiment_id,
-            user_id="user123"
+            experiment.experiment_id, user_id="user123"
         )
 
         assert variant is not None
@@ -430,9 +407,7 @@ class TestABTesting:
 
         # Sticky assignment (same user gets same variant)
         variant2 = await ab_manager.assign_variant(
-            experiment.experiment_id,
-            user_id="user123",
-            sticky=True
+            experiment.experiment_id, user_id="user123", sticky=True
         )
 
         assert variant.variant_id == variant2.variant_id
@@ -448,7 +423,7 @@ class TestABTesting:
             version="1.0.0",
             workflow_data={},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -457,7 +432,7 @@ class TestABTesting:
             workflow_data={},
             author="test",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         experiment = await ab_manager.create_experiment(
@@ -466,15 +441,17 @@ class TestABTesting:
             description="Test",
             variants=[
                 Variant("control", "1.0.0", 0.5, "control"),
-                Variant("test", "2.0.0", 0.5, "test")
-            ]
+                Variant("test", "2.0.0", 0.5, "test"),
+            ],
         )
 
         await ab_manager.start_experiment(experiment.experiment_id)
 
         # Record metrics
         await ab_manager.record_impression(experiment.experiment_id, "control")
-        await ab_manager.record_success(experiment.experiment_id, "control", latency=1.5, cost=0.05)
+        await ab_manager.record_success(
+            experiment.experiment_id, "control", latency=1.5, cost=0.05
+        )
 
         # Get metrics
         metrics = await ab_manager.get_metrics(experiment.experiment_id)
@@ -497,7 +474,7 @@ class TestABTesting:
             version="1.0.0",
             workflow_data={},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -506,7 +483,7 @@ class TestABTesting:
             workflow_data={},
             author="test",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         experiment = await ab_manager.create_experiment(
@@ -515,9 +492,9 @@ class TestABTesting:
             description="Test",
             variants=[
                 Variant("control", "1.0.0", 0.5, "control"),
-                Variant("test", "2.0.0", 0.5, "test")
+                Variant("test", "2.0.0", 0.5, "test"),
             ],
-            min_sample_size=10
+            min_sample_size=10,
         )
 
         await ab_manager.start_experiment(experiment.experiment_id)
@@ -551,7 +528,7 @@ class TestABTesting:
             version="1.0.0",
             workflow_data={},
             author="test",
-            changelog="v1"
+            changelog="v1",
         )
 
         await version_manager.create_version(
@@ -560,7 +537,7 @@ class TestABTesting:
             workflow_data={},
             author="test",
             changelog="v2",
-            set_active=False
+            set_active=False,
         )
 
         # Create 2 experiments
@@ -571,8 +548,8 @@ class TestABTesting:
                 description="Test",
                 variants=[
                     Variant("control", "1.0.0", 0.5, "control"),
-                    Variant("test", "2.0.0", 0.5, "test")
-                ]
+                    Variant("test", "2.0.0", 0.5, "test"),
+                ],
             )
 
         # List experiments

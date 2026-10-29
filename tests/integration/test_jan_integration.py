@@ -18,8 +18,11 @@ from src.providers.jan_provider import JanProvider
 
 @pytest.fixture
 async def jan_provider():
-    """Create Jan provider instance"""
+    """Create Jan provider instance (skips when no Jan server is running)"""
     provider = JanProvider(base_url="http://localhost:1337")
+    if not await provider.health_check():
+        await provider.close()
+        pytest.skip("Jan server not reachable at http://localhost:1337")
     yield provider
     await provider.close()
 
@@ -34,8 +37,7 @@ class TestJanIntegration:
         is_healthy = await jan_provider.health_check()
 
         assert is_healthy, (
-            "Jan server not healthy. "
-            "Ensure Jan is running: docker-compose up -d jan"
+            "Jan server not healthy. " "Ensure Jan is running: docker-compose up -d jan"
         )
 
     async def test_list_models(self, jan_provider):
@@ -44,8 +46,7 @@ class TestJanIntegration:
 
         assert isinstance(models, list), "Models should be a list"
         assert len(models) > 0, (
-            "No models available in Jan. "
-            "Download models via Jan UI or CLI"
+            "No models available in Jan. " "Download models via Jan UI or CLI"
         )
 
         # Check model structure
@@ -70,11 +71,14 @@ class TestJanIntegration:
         response = await jan_provider.chat_completion(
             model=model_id,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant. Be concise."},
-                {"role": "user", "content": "What is 2+2? Answer in one word."}
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant. Be concise.",
+                },
+                {"role": "user", "content": "What is 2+2? Answer in one word."},
             ],
             max_tokens=10,
-            temperature=0.1
+            temperature=0.1,
         )
 
         assert response is not None
@@ -103,9 +107,7 @@ class TestJanIntegration:
 
         # First turn
         response1 = await jan_provider.chat_completion(
-            model=model_id,
-            messages=messages,
-            max_tokens=50
+            model=model_id, messages=messages, max_tokens=50
         )
 
         assert response1.content
@@ -116,20 +118,18 @@ class TestJanIntegration:
 
         # Second turn (should remember name)
         response2 = await jan_provider.chat_completion(
-            model=model_id,
-            messages=messages,
-            max_tokens=50
+            model=model_id, messages=messages, max_tokens=50
         )
 
         assert response2.content
-        assert "alice" in response2.content.lower(), (
-            "Model should remember user's name from context"
-        )
+        assert (
+            "alice" in response2.content.lower()
+        ), "Model should remember user's name from context"
 
-        print(f"\nConversation:")
-        print(f"User: My name is Alice.")
+        print("\nConversation:")
+        print("User: My name is Alice.")
         print(f"Assistant: {response1.content}")
-        print(f"User: What is my name?")
+        print("User: What is my name?")
         print(f"Assistant: {response2.content}")
 
     async def test_streaming(self, jan_provider):
@@ -144,7 +144,7 @@ class TestJanIntegration:
         async for chunk in jan_provider.stream_completion(
             model=model_id,
             messages=[{"role": "user", "content": "Count from 1 to 3."}],
-            max_tokens=50
+            max_tokens=50,
         ):
             chunks.append(chunk)
 
@@ -176,18 +176,12 @@ class TestJanIntegration:
 
         # Low temperature (deterministic)
         response_low = await jan_provider.chat_completion(
-            model=model_id,
-            messages=prompt,
-            temperature=0.1,
-            max_tokens=20
+            model=model_id, messages=prompt, temperature=0.1, max_tokens=20
         )
 
         # High temperature (creative)
         response_high = await jan_provider.chat_completion(
-            model=model_id,
-            messages=prompt,
-            temperature=1.5,
-            max_tokens=20
+            model=model_id, messages=prompt, temperature=1.5, max_tokens=20
         )
 
         assert response_low.content
@@ -208,20 +202,20 @@ class TestJanIntegration:
         response = await jan_provider.chat_completion(
             model=model_id,
             messages=[{"role": "user", "content": "Write a long story."}],
-            max_tokens=5
+            max_tokens=5,
         )
 
         assert response.content
-        assert response.usage["completion_tokens"] <= 5, (
-            "Should respect max_tokens limit"
-        )
+        assert (
+            response.usage["completion_tokens"] <= 5
+        ), "Should respect max_tokens limit"
 
     async def test_error_handling_invalid_model(self, jan_provider):
         """Test error handling for invalid model"""
         with pytest.raises(Exception):
             await jan_provider.chat_completion(
                 model="nonexistent-model-12345",
-                messages=[{"role": "user", "content": "test"}]
+                messages=[{"role": "user", "content": "test"}],
             )
 
     async def test_concurrent_requests(self, jan_provider):
@@ -237,7 +231,7 @@ class TestJanIntegration:
             jan_provider.chat_completion(
                 model=model_id,
                 messages=[{"role": "user", "content": f"Say the number {i}"}],
-                max_tokens=10
+                max_tokens=10,
             )
             for i in range(3)
         ]
@@ -264,9 +258,11 @@ class TestJanPrivacyMode:
         # This test verifies configuration, actual network isolation
         # would require network monitoring
 
-        assert jan_provider.base_url.startswith("http://localhost") or \
-               jan_provider.base_url.startswith("http://127.0.0.1"), \
-               "Jan should be configured for local execution only"
+        assert jan_provider.base_url.startswith(
+            "http://localhost"
+        ) or jan_provider.base_url.startswith(
+            "http://127.0.0.1"
+        ), "Jan should be configured for local execution only"
 
     async def test_zero_cost_operation(self, jan_provider):
         """Verify all operations are zero cost"""
@@ -280,13 +276,12 @@ class TestJanPrivacyMode:
         response = await jan_provider.chat_completion(
             model=model_id,
             messages=[{"role": "user", "content": "test"}],
-            max_tokens=10
+            max_tokens=10,
         )
 
         # Calculate cost
         cost = jan_provider.get_cost(
-            response.usage["prompt_tokens"],
-            response.usage["completion_tokens"]
+            response.usage["prompt_tokens"], response.usage["completion_tokens"]
         )
 
         assert cost == 0.0, "Privacy mode should have zero cost"
@@ -311,5 +306,5 @@ def pytest_configure(config):
     """Configure pytest markers"""
     config.addinivalue_line(
         "markers",
-        "integration: mark test as integration test (requires external services)"
+        "integration: mark test as integration test (requires external services)",
     )

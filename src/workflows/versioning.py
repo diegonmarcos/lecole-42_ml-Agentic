@@ -13,23 +13,20 @@ import asyncio
 import hashlib
 import json
 import logging
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-try:
-    import redis.asyncio as redis
-except ImportError:
-    import redis
-
+import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
 
 class VersionStatus(Enum):
     """Version status"""
+
     DRAFT = "draft"
     ACTIVE = "active"
     DEPRECATED = "deprecated"
@@ -39,6 +36,7 @@ class VersionStatus(Enum):
 @dataclass
 class WorkflowVersion:
     """Workflow version metadata"""
+
     workflow_id: str
     version: str  # Semantic version (e.g., "1.2.3")
     status: VersionStatus
@@ -68,6 +66,7 @@ class WorkflowVersion:
 @dataclass
 class VersionComparison:
     """Comparison between two workflow versions"""
+
     old_version: str
     new_version: str
     changes: List[Dict[str, Any]]
@@ -101,11 +100,7 @@ class WorkflowVersionManager:
         await manager.rollback("agent-pipeline-1", "1.0.0")
     """
 
-    def __init__(
-        self,
-        redis_client: redis.Redis,
-        storage_path: str = "data/workflows"
-    ):
+    def __init__(self, redis_client: redis.Redis, storage_path: str = "data/workflows"):
         """
         Initialize version manager.
 
@@ -147,7 +142,7 @@ class WorkflowVersionManager:
         changelog: str,
         parent_version: Optional[str] = None,
         set_active: bool = True,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> WorkflowVersion:
         """
         Create new workflow version.
@@ -172,7 +167,9 @@ class WorkflowVersionManager:
         # Check if version already exists
         existing = await self.get_version(workflow_id, version)
         if existing:
-            raise ValueError(f"Version {version} already exists for workflow {workflow_id}")
+            raise ValueError(
+                f"Version {version} already exists for workflow {workflow_id}"
+            )
 
         # Calculate checksum
         checksum = self._calculate_checksum(workflow_data)
@@ -188,14 +185,14 @@ class WorkflowVersionManager:
             workflow_data=workflow_data,
             checksum=checksum,
             parent_version=parent_version,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         # Store workflow data on filesystem
         storage_path = self._get_storage_path(workflow_id, version)
         storage_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(storage_path, 'w') as f:
+        with open(storage_path, "w", encoding="utf-8") as f:
             json.dump(workflow_data, f, indent=2)
 
         # Store metadata in Redis
@@ -205,31 +202,24 @@ class WorkflowVersionManager:
         version_dict.pop("workflow_data")
 
         await self.redis.set(
-            redis_key,
-            json.dumps(version_dict),
-            ex=86400 * 365  # 1 year expiry
+            redis_key, json.dumps(version_dict), ex=86400 * 365  # 1 year expiry
         )
 
         # Add to version list
         versions_key = self._get_versions_key(workflow_id)
-        await self.redis.zadd(
-            versions_key,
-            {version: datetime.utcnow().timestamp()}
-        )
+        await self.redis.zadd(versions_key, {version: datetime.utcnow().timestamp()})
 
         # Set as active if requested
         if set_active:
             active_key = self._get_active_key(workflow_id)
             await self.redis.set(active_key, version)
 
-        logger.info(f"Created workflow version: {workflow_id} v{version}")
+        logger.info("Created workflow version: %s v%s", workflow_id, version)
 
         return workflow_version
 
     async def get_version(
-        self,
-        workflow_id: str,
-        version: str
+        self, workflow_id: str, version: str
     ) -> Optional[WorkflowVersion]:
         """Get specific workflow version"""
         # Get metadata from Redis
@@ -245,10 +235,10 @@ class WorkflowVersionManager:
         storage_path = self._get_storage_path(workflow_id, version)
 
         if not storage_path.exists():
-            logger.warning(f"Workflow data not found: {storage_path}")
+            logger.warning("Workflow data not found: %s", storage_path)
             return None
 
-        with open(storage_path, 'r') as f:
+        with open(storage_path, "r", encoding="utf-8") as f:
             workflow_data = json.load(f)
 
         version_dict["workflow_data"] = workflow_data
@@ -269,10 +259,7 @@ class WorkflowVersionManager:
         return await self.get_version(workflow_id, version)
 
     async def list_versions(
-        self,
-        workflow_id: str,
-        status: Optional[VersionStatus] = None,
-        limit: int = 100
+        self, workflow_id: str, status: Optional[VersionStatus] = None, limit: int = 100
     ) -> List[WorkflowVersion]:
         """
         List workflow versions.
@@ -302,11 +289,7 @@ class WorkflowVersionManager:
 
         return versions
 
-    async def set_active_version(
-        self,
-        workflow_id: str,
-        version: str
-    ) -> bool:
+    async def set_active_version(self, workflow_id: str, version: str) -> bool:
         """
         Set active version (rollback/rollforward).
 
@@ -334,14 +317,12 @@ class WorkflowVersionManager:
             version_dict["status"] = VersionStatus.ACTIVE.value
             await self.redis.set(redis_key, json.dumps(version_dict))
 
-        logger.info(f"Set active version: {workflow_id} v{version}")
+        logger.info("Set active version: %s v%s", workflow_id, version)
         return True
 
     async def rollback(
-        self,
-        workflow_id: str,
-        target_version: str
-    ) -> WorkflowVersion:
+        self, workflow_id: str, target_version: str
+    ) -> Optional[WorkflowVersion]:
         """
         Rollback to previous version.
 
@@ -355,15 +336,12 @@ class WorkflowVersionManager:
         await self.set_active_version(workflow_id, target_version)
         version = await self.get_version(workflow_id, target_version)
 
-        logger.info(f"Rolled back workflow {workflow_id} to v{target_version}")
+        logger.info("Rolled back workflow %s to v%s", workflow_id, target_version)
 
         return version
 
     async def compare_versions(
-        self,
-        workflow_id: str,
-        old_version: str,
-        new_version: str
+        self, workflow_id: str, old_version: str, new_version: str
     ) -> VersionComparison:
         """
         Compare two workflow versions.
@@ -390,12 +368,12 @@ class WorkflowVersionManager:
             new_version=new_version,
             changes=changes,
             breaking_changes=breaking_changes,
-            compatible=len(breaking_changes) == 0
+            compatible=len(breaking_changes) == 0,
         )
 
     def _validate_semver(self, version: str) -> bool:
         """Validate semantic version format"""
-        parts = version.split('.')
+        parts = version.split(".")
         if len(parts) != 3:
             return False
 
@@ -406,10 +384,7 @@ class WorkflowVersionManager:
             return False
 
     def _diff_workflows(
-        self,
-        old_data: Dict[str, Any],
-        new_data: Dict[str, Any],
-        path: str = ""
+        self, old_data: Dict[str, Any], new_data: Dict[str, Any], path: str = ""
     ) -> List[Dict[str, Any]]:
         """Recursively diff workflow data"""
         changes = []
@@ -417,33 +392,37 @@ class WorkflowVersionManager:
         # Check for removed keys
         for key in old_data:
             if key not in new_data:
-                changes.append({
-                    "type": "removed",
-                    "path": f"{path}.{key}" if path else key,
-                    "old_value": old_data[key]
-                })
+                changes.append(
+                    {
+                        "type": "removed",
+                        "path": f"{path}.{key}" if path else key,
+                        "old_value": old_data[key],
+                    }
+                )
 
         # Check for added/modified keys
         for key in new_data:
             new_path = f"{path}.{key}" if path else key
 
             if key not in old_data:
-                changes.append({
-                    "type": "added",
-                    "path": new_path,
-                    "new_value": new_data[key]
-                })
+                changes.append(
+                    {"type": "added", "path": new_path, "new_value": new_data[key]}
+                )
             elif old_data[key] != new_data[key]:
                 if isinstance(old_data[key], dict) and isinstance(new_data[key], dict):
                     # Recurse into nested dicts
-                    changes.extend(self._diff_workflows(old_data[key], new_data[key], new_path))
+                    changes.extend(
+                        self._diff_workflows(old_data[key], new_data[key], new_path)
+                    )
                 else:
-                    changes.append({
-                        "type": "modified",
-                        "path": new_path,
-                        "old_value": old_data[key],
-                        "new_value": new_data[key]
-                    })
+                    changes.append(
+                        {
+                            "type": "modified",
+                            "path": new_path,
+                            "old_value": old_data[key],
+                            "new_value": new_data[key],
+                        }
+                    )
 
         return changes
 
@@ -458,16 +437,12 @@ class WorkflowVersionManager:
 
             # Breaking: Changed types
             elif change["type"] == "modified":
-                if type(change["old_value"]) != type(change["new_value"]):
+                if type(change["old_value"]) is not type(change["new_value"]):
                     breaking.append(f"Type changed: {change['path']}")
 
         return breaking
 
-    async def deprecate_version(
-        self,
-        workflow_id: str,
-        version: str
-    ) -> bool:
+    async def deprecate_version(self, workflow_id: str, version: str) -> bool:
         """Mark version as deprecated"""
         redis_key = self._get_redis_key(workflow_id, version)
         data = await self.redis.get(redis_key)
@@ -479,13 +454,11 @@ class WorkflowVersionManager:
         version_dict["status"] = VersionStatus.DEPRECATED.value
         await self.redis.set(redis_key, json.dumps(version_dict))
 
-        logger.info(f"Deprecated version: {workflow_id} v{version}")
+        logger.info("Deprecated version: %s v%s", workflow_id, version)
         return True
 
     async def get_version_history(
-        self,
-        workflow_id: str,
-        limit: int = 50
+        self, workflow_id: str, limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
         Get version history with metadata.
@@ -497,21 +470,24 @@ class WorkflowVersionManager:
 
         history = []
         for version in versions:
-            history.append({
-                "version": version.version,
-                "status": version.status.value,
-                "created_at": version.created_at.isoformat(),
-                "author": version.author,
-                "changelog": version.changelog,
-                "parent_version": version.parent_version,
-                "checksum": version.checksum
-            })
+            history.append(
+                {
+                    "version": version.version,
+                    "status": version.status.value,
+                    "created_at": version.created_at.isoformat(),
+                    "author": version.author,
+                    "changelog": version.changelog,
+                    "parent_version": version.parent_version,
+                    "checksum": version.checksum,
+                }
+            )
 
         return history
 
 
 # Example usage
 if __name__ == "__main__":
+
     async def main():
         # Initialize Redis
         redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
@@ -523,8 +499,8 @@ if __name__ == "__main__":
             "agents": ["planner", "coder"],
             "steps": [
                 {"agent": "planner", "action": "plan_task"},
-                {"agent": "coder", "action": "generate_code"}
-            ]
+                {"agent": "coder", "action": "generate_code"},
+            ],
         }
 
         v1 = await manager.create_version(
@@ -532,7 +508,7 @@ if __name__ == "__main__":
             version="1.0.0",
             workflow_data=workflow_data_v1,
             author="system",
-            changelog="Initial version with planner + coder"
+            changelog="Initial version with planner + coder",
         )
 
         print(f"Created v1.0.0: {v1.checksum}")
@@ -543,8 +519,8 @@ if __name__ == "__main__":
             "steps": [
                 {"agent": "planner", "action": "plan_task"},
                 {"agent": "coder", "action": "generate_code"},
-                {"agent": "reviewer", "action": "review_code"}
-            ]
+                {"agent": "reviewer", "action": "review_code"},
+            ],
         }
 
         v2 = await manager.create_version(
@@ -553,16 +529,14 @@ if __name__ == "__main__":
             workflow_data=workflow_data_v2,
             author="system",
             changelog="Add reviewer agent",
-            parent_version="1.0.0"
+            parent_version="1.0.0",
         )
 
         print(f"Created v1.1.0: {v2.checksum}")
 
         # Compare versions
         comparison = await manager.compare_versions(
-            "code-generation-pipeline",
-            "1.0.0",
-            "1.1.0"
+            "code-generation-pipeline", "1.0.0", "1.1.0"
         )
 
         print(f"\nChanges: {len(comparison.changes)}")
