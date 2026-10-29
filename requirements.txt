@@ -19,7 +19,7 @@ rank-bm25==0.2.2             # BM25 keyword search
 
 # LLM Providers
 aiohttp==3.9.1               # Async HTTP client
-litellm==1.17.0              # Unified LLM interface
+litellm==1.14.4              # Unified LLM interface  # 1.15-1.53 were removed from PyPI; 1.14.4 is the nearest release compatible with openai==1.6.1
 openai==1.6.1                # OpenAI/compatible APIs
 
 # NLP & Embeddings
