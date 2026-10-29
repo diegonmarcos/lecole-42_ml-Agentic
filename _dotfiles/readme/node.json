@@ -5,6 +5,7 @@
   "label": "lecole-42_ml-Agentic",
   "code": "5.6.1.1",
   "kind": "repo",
+  "variant": "repo",
   "description": "It's basically a highly-paid, very fast committee of AIs arguing until a solution pops out.",
   "visibility": "public",
   "url": "https://github.com/diegonmarcos/lecole-42_ml-Agentic",
