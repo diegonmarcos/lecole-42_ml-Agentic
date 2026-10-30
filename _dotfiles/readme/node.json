@@ -1,6 +1,6 @@
 {
   "schema": "readme-node/v1",
-  "generated_by": "_git-repos-master readme-render.js nodeData() from projects-repos.json; DO NOT EDIT (node repos-sot.js sync-readmes)",
+  "generated_by": "_git-repos-master 0_registry/readme-render.js nodeData() from projects-repos.json; DO NOT EDIT (node 0_registry/repos-sot.js sync-readmes)",
   "name": "lecole-42_ml-Agentic",
   "label": "lecole-42_ml-Agentic",
   "code": "5.6.1.1",

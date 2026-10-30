@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // readme-render.js - the ONE README renderer for every repo (#1303).
-// SOURCE: _git-repos-master/readme-render.js. Every repo carries a byte copy as _dotfiles/readme/readme-render.cjs (written by
-// `node repos-sot.js sync-readmes`); DO NOT EDIT the copies.
+// SOURCE: _git-repos-master/0_registry/readme-render.js. Every repo carries a byte copy as _dotfiles/readme/readme-render.cjs (written by
+// `node 0_registry/repos-sot.js sync-readmes`); DO NOT EDIT the copies.
 //
 // A repo's README.md = template (_dotfiles/readme/template.md.tpl: hub, repo, archived or profile variant)
-//                    + node.json  (its registry node, rendered from projects-repos.json; DO NOT EDIT)
+//                    + node.json  (its registry node, rendered from 0_registry/projects-repos.json; DO NOT EDIT)
 //                    + readme.json (optional, hand-owned: title, intro, sections[] of repo-specific prose).
 //
 //   node _dotfiles/readme/readme-render.cjs [repo-root]           write README.md
@@ -44,7 +44,7 @@ function nodeData(x, name) {
   const isHub = r.kind === 'hub';
   return {
     schema: 'readme-node/v1',
-    generated_by: '_git-repos-master readme-render.js nodeData() from projects-repos.json; DO NOT EDIT (node repos-sot.js sync-readmes)',
+    generated_by: '_git-repos-master 0_registry/readme-render.js nodeData() from projects-repos.json; DO NOT EDIT (node 0_registry/repos-sot.js sync-readmes)',
     name: r.name, label: r.label || r.name, code: r.code, kind: isHub ? 'hub' : 'repo', variant: variant(r),
     description: r.description || (own && own.description) || '',
     visibility: r.visibility, url: r.url, developer: r.developer || '', farm: r.farm || '',

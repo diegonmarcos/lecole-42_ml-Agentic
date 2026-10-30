@@ -3,8 +3,8 @@
 # ║   GENERATED FILE — DO NOT EDIT                                   ║
 # ║                                                                  ║
 # ║   Source : _git-repos-master/9_others/templates/readme/readme-check.yml
-# ║   Engine : _git-repos-master/repos-sot.js sync-readmes
-# ║   Rebuild: node repos-sot.js sync-readmes <clone>
+# ║   Engine : _git-repos-master/0_registry/repos-sot.js sync-readmes
+# ║   Rebuild: node 0_registry/repos-sot.js sync-readmes <clone>
 # ║                                                                  ║
 # ║   Manual edits will be overwritten on next build.                ║
 # ║                                                                  ║
