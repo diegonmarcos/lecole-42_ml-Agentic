@@ -2453,7 +2453,7 @@
       "Bash(gh variable set * -R diegonmarcos/z-archived_front-warehouse *)",
       "Bash(git -C /home/user/z-archived_front-warehouse *)",
       "Bash(git clone https://github.com/diegonmarcos/z-archived_front-warehouse*)",
-      "Edit(/home/user/cloud-u-linux/da_my-ai/data/claude/**)",
+      "Edit(/home/user/git-repos-master/0_claude-sot/**)",
       "Edit(.claude/**)",
       "Edit(_dotfiles/apps/**)",
       "Bash(gh api -X POST repos/diegonmarcos/cloudy-t-infra/actions/workflows/gcp-vm-control.yml/dispatches -f ref=main -f inputs[instance]=gcp-proxy -f inputs[action]=reset)",
@@ -5078,12 +5078,12 @@
       "Bash(gh api --method DELETE user/packages/container/* *)",
       "Bash(gh api -X DELETE users/diegonmarcos/packages/container/*)",
       "Bash(gh api -X DELETE users/diegonmarcos/packages/container/* *)",
-      "Bash(node /home/user/cloud-u-linux/da_my-ai/data/claude/gen-permissions.mjs)",
-      "Bash(node /home/user/cloud-u-linux/da_my-ai/data/claude/gen-permissions.mjs *)",
-      "Bash(sh /home/user/cloud-u-linux/da_my-ai/engines/dotfiles/deploy-dotfiles.sh)",
-      "Bash(sh /home/user/cloud-u-linux/da_my-ai/engines/dotfiles/deploy-dotfiles.sh *)",
-      "Bash(bash /home/user/cloud-u-linux/da_my-ai/data/claude/test-claude-sot.sh)",
-      "Bash(bash /home/user/cloud-u-linux/da_my-ai/data/claude/test-claude-sot.sh *)"
+      "Bash(node /home/user/git-repos-master/0_claude-sot/gen-permissions.mjs)",
+      "Bash(node /home/user/git-repos-master/0_claude-sot/gen-permissions.mjs *)",
+      "Bash(sh /home/user/git-repos-master/0_claude-sot/engine/deploy-dotfiles.sh)",
+      "Bash(sh /home/user/git-repos-master/0_claude-sot/engine/deploy-dotfiles.sh *)",
+      "Bash(bash /home/user/git-repos-master/0_claude-sot/test-claude-sot.sh)",
+      "Bash(bash /home/user/git-repos-master/0_claude-sot/test-claude-sot.sh *)"
     ],
     "_allow_extensive": "2026-11-05 OWNER ORDER: maximal allow list, covering every built-in tool, wildcard Bash/Read/Edit/Write/WebFetch, and every fleet MCP under both its old name and its rebrand name. Cloud sessions still ignore bypassPermissions, and the auto-mode classifier still reviews production deploys whatever the allow rules say.",
     "deny": [
